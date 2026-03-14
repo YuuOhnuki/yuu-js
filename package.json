@@ -1,0 +1,19 @@
+{
+    "name": "yuu-js",
+    "module": "index.ts",
+    "type": "module",
+    "devDependencies": {
+        "@types/bun": "latest",
+        "prettier": "^3.8.1"
+    },
+    "scripts": {
+        "dev": "bun --watch index.ts"
+    },
+    "peerDependencies": {
+        "typescript": "^5"
+    },
+    "dependencies": {
+        "@libsql/client": "^0.17.0",
+        "discord.js": "^14.25.1"
+    }
+}
