@@ -1,4 +1,4 @@
-import { createClient, type Client, type InValue } from '@libsql/client'
+import { Pool, types } from 'pg'
 import { initializeSchema } from './schema'
 import type {
     ChannelRow,
@@ -33,6 +33,10 @@ export type {
     RolePanelItemRow,
 }
 
+// PostgresでBIGINTを数値として扱う（デフォルトは文字列）
+types.setTypeParser(types.builtins.INT8, (val) => parseInt(val, 10))
+types.setTypeParser(types.builtins.NUMERIC, (val) => parseFloat(val))
+
 // ─── ユーティリティ ───────────────────────────────────────────────────────────
 
 const TIMEZONE = process.env.QUOTE_TIMEZONE ?? 'Asia/Tokyo'
@@ -62,22 +66,17 @@ export function levelFromTotalXp(totalXp: number): {
 
 // ─── DBクライアント ───────────────────────────────────────────────────────────
 
-let _db: Client | null = null
+let _pool: Pool | null = null
 
-function getDb(): Client {
-    if (!_db) {
-        const url = process.env.TURSO_DATABASE_URL
-        const authToken = process.env.TURSO_AUTH_TOKEN
-        if (
-            url &&
-            (url.startsWith('libsql://') || url.startsWith('https://'))
-        ) {
-            _db = createClient({ url, authToken: authToken || undefined })
-        } else {
-            _db = createClient({ url: 'file:./data/bot.db' })
+function getDb(): Pool {
+    if (!_pool) {
+        const connectionString = process.env.DATABASE_URL
+        if (!connectionString) {
+            throw new Error('DATABASE_URL is not defined in .env')
         }
+        _pool = new Pool({ connectionString })
     }
-    return _db
+    return _pool
 }
 
 /**
@@ -103,22 +102,22 @@ export async function initDb(): Promise<void> {
 export async function getGuildSettings(
     guildId: string
 ): Promise<GuildSettingsRow> {
-    const db = getDb()
+    const pool = getDb()
 
     // UPSERT でレコードを保証する
-    await db.execute({
-        sql: `
+    await pool.query(
+        `
             INSERT INTO guild_settings (guild_id)
-            VALUES (:guild_id)
+            VALUES ($1)
             ON CONFLICT(guild_id) DO NOTHING
         `,
-        args: { guild_id: guildId },
-    })
+        [guildId]
+    )
 
-    const result = await db.execute({
-        sql: `SELECT * FROM guild_settings WHERE guild_id = :guild_id`,
-        args: { guild_id: guildId },
-    })
+    const result = await pool.query(
+        `SELECT * FROM guild_settings WHERE guild_id = $1`,
+        [guildId]
+    )
 
     return result.rows[0] as unknown as GuildSettingsRow
 }
@@ -136,25 +135,25 @@ export async function updateGuildSettings(
         Omit<GuildSettingsRow, 'guild_id' | 'created_at' | 'updated_at'>
     >
 ): Promise<GuildSettingsRow> {
-    const db = getDb()
+    const pool = getDb()
 
     const entries = Object.entries(patch)
     if (entries.length === 0) return getGuildSettings(guildId)
 
-    const setClauses = entries.map(([key]) => `${key} = :${key}`).join(', ')
-    const args: Record<string, InValue> = { guild_id: guildId }
-    for (const [key, value] of entries) {
-        args[key] = value as InValue
-    }
+    // $1はguild_id, $2以降が更新値
+    const setClauses = entries
+        .map(([key], i) => `${key} = $${i + 2}`)
+        .join(', ')
+    const values = [guildId, ...entries.map(([, v]) => v)]
 
-    await db.execute({
-        sql: `
+    await pool.query(
+        `
             UPDATE guild_settings
-            SET ${setClauses}, updated_at = datetime('now')
-            WHERE guild_id = :guild_id
+            SET ${setClauses}, updated_at = CURRENT_TIMESTAMP
+            WHERE guild_id = $1
         `,
-        args,
-    })
+        values
+    )
 
     return getGuildSettings(guildId)
 }
@@ -192,21 +191,21 @@ export async function getUserLevel(
     userId: string,
     guildId: string
 ): Promise<UserLevelRow> {
-    const db = getDb()
+    const pool = getDb()
 
-    await db.execute({
-        sql: `
+    await pool.query(
+        `
             INSERT INTO user_levels (user_id, guild_id)
-            VALUES (:user_id, :guild_id)
+            VALUES ($1, $2)
             ON CONFLICT(user_id, guild_id) DO NOTHING
         `,
-        args: { user_id: userId, guild_id: guildId },
-    })
+        [userId, guildId]
+    )
 
-    const result = await db.execute({
-        sql: `SELECT * FROM user_levels WHERE user_id = :user_id AND guild_id = :guild_id`,
-        args: { user_id: userId, guild_id: guildId },
-    })
+    const result = await pool.query(
+        `SELECT * FROM user_levels WHERE user_id = $1 AND guild_id = $2`,
+        [userId, guildId]
+    )
 
     return result.rows[0] as unknown as UserLevelRow
 }
@@ -231,7 +230,7 @@ export async function addXp(
     guildId: string,
     baseXp: number
 ): Promise<LevelUpResult> {
-    const db = getDb()
+    const pool = getDb()
     const settings = await getGuildSettings(guildId)
     const data = await getUserLevel(userId, guildId)
 
@@ -254,26 +253,19 @@ export async function addXp(
     const { level: newLevel, xp: newXp } = levelFromTotalXp(newTotalXp)
     const leveled = newLevel > data.level
 
-    await db.execute({
-        sql: `
+    await pool.query(
+        `
             UPDATE user_levels
             SET
-                xp       = :xp,
-                level    = :level,
-                total_xp = :total_xp,
-                last_xp_at = :last_xp_at,
-                updated_at = datetime('now')
-            WHERE user_id = :user_id AND guild_id = :guild_id
+                xp       = $1,
+                level    = $2,
+                total_xp = $3,
+                last_xp_at = $4,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = $5 AND guild_id = $6
         `,
-        args: {
-            xp: newXp,
-            level: newLevel,
-            total_xp: newTotalXp,
-            last_xp_at: now,
-            user_id: userId,
-            guild_id: guildId,
-        },
-    })
+        [newXp, newLevel, newTotalXp, now, userId, guildId]
+    )
 
     return {
         leveled,
@@ -291,10 +283,10 @@ export async function getLevelRanking(
     guildId: string,
     limit = 10
 ): Promise<RankingEntry[]> {
-    const db = getDb()
+    const pool = getDb()
 
-    const result = await db.execute({
-        sql: `
+    const result = await pool.query(
+        `
             SELECT
                 ROW_NUMBER() OVER (ORDER BY total_xp DESC) AS rank,
                 user_id,
@@ -302,12 +294,12 @@ export async function getLevelRanking(
                 level,
                 xp
             FROM user_levels
-            WHERE guild_id = :guild_id
+            WHERE guild_id = $1
             ORDER BY total_xp DESC
-            LIMIT :limit
+            LIMIT $2
         `,
-        args: { guild_id: guildId, limit },
-    })
+        [guildId, limit]
+    )
 
     return result.rows as unknown as RankingEntry[]
 }
@@ -319,21 +311,21 @@ export async function getUserLevelRank(
     userId: string,
     guildId: string
 ): Promise<number> {
-    const db = getDb()
+    const pool = getDb()
 
-    const result = await db.execute({
-        sql: `
+    const result = await pool.query(
+        `
             SELECT COUNT(*) + 1 AS rank
             FROM user_levels
-            WHERE guild_id = :guild_id
+            WHERE guild_id = $1
               AND total_xp > (
                   SELECT COALESCE(total_xp, 0)
-                  FROM user_levels
-                  WHERE user_id = :user_id AND guild_id = :guild_id
+                FROM user_levels
+                WHERE user_id = $2 AND guild_id = $1
               )
         `,
-        args: { guild_id: guildId, user_id: userId },
-    })
+        [guildId, userId]
+    )
 
     return Number(result.rows[0]?.rank ?? 1)
 }
@@ -349,21 +341,21 @@ export async function getUserEconomy(
     userId: string,
     guildId: string
 ): Promise<UserEconomyRow> {
-    const db = getDb()
+    const pool = getDb()
 
-    await db.execute({
-        sql: `
+    await pool.query(
+        `
             INSERT INTO user_economy (user_id, guild_id)
-            VALUES (:user_id, :guild_id)
+            VALUES ($1, $2)
             ON CONFLICT(user_id, guild_id) DO NOTHING
         `,
-        args: { user_id: userId, guild_id: guildId },
-    })
+        [userId, guildId]
+    )
 
-    const result = await db.execute({
-        sql: `SELECT * FROM user_economy WHERE user_id = :user_id AND guild_id = :guild_id`,
-        args: { user_id: userId, guild_id: guildId },
-    })
+    const result = await pool.query(
+        `SELECT * FROM user_economy WHERE user_id = $1 AND guild_id = $2`,
+        [userId, guildId]
+    )
 
     return result.rows[0] as unknown as UserEconomyRow
 }
@@ -382,7 +374,7 @@ export async function claimDaily(
     | { success: true; amount: number; newBalance: number }
     | { success: false; nextAvailableDate: string }
 > {
-    const db = getDb()
+    const pool = getDb()
     const settings = await getGuildSettings(guildId)
     const data = await getUserEconomy(userId, guildId)
     const today = getToday()
@@ -400,24 +392,18 @@ export async function claimDaily(
     const amount = settings.daily_amount ?? 200
     const newBalance = data.balance + amount
 
-    await db.execute({
-        sql: `
+    await pool.query(
+        `
             UPDATE user_economy
             SET
-                balance         = :balance,
-                total_earned    = total_earned + :amount,
-                last_daily_date = :today,
-                updated_at      = datetime('now')
-            WHERE user_id = :user_id AND guild_id = :guild_id
+                balance         = $1,
+                total_earned    = total_earned + $2,
+                last_daily_date = $3,
+                updated_at      = CURRENT_TIMESTAMP
+            WHERE user_id = $4 AND guild_id = $5
         `,
-        args: {
-            balance: newBalance,
-            amount,
-            today,
-            user_id: userId,
-            guild_id: guildId,
-        },
-    })
+        [newBalance, amount, today, userId, guildId]
+    )
 
     return { success: true, amount, newBalance }
 }
@@ -435,7 +421,7 @@ export async function transferBalance(
         return { success: false, error: 'self_transfer' }
     }
 
-    const db = getDb()
+    const pool = getDb()
     const sender = await getUserEconomy(fromUserId, guildId)
 
     if (sender.balance < amount) {
@@ -448,24 +434,37 @@ export async function transferBalance(
 
     await getUserEconomy(toUserId, guildId) // 受取人レコードを保証
 
-    await db.batch([
-        {
-            sql: `
-                UPDATE user_economy
-                SET balance = balance - :amount, updated_at = datetime('now')
-                WHERE user_id = :user_id AND guild_id = :guild_id
+    const client = await pool.connect()
+    try {
+        await client.query('BEGIN')
+
+        // 送金元
+        await client.query(
+            `
+            UPDATE user_economy
+            SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = $2 AND guild_id = $3
             `,
-            args: { amount, user_id: fromUserId, guild_id: guildId },
-        },
-        {
-            sql: `
-                UPDATE user_economy
-                SET balance = balance + :amount, total_earned = total_earned + :amount, updated_at = datetime('now')
-                WHERE user_id = :user_id AND guild_id = :guild_id
+            [amount, fromUserId, guildId]
+        )
+
+        // 送金先
+        await client.query(
+            `
+            UPDATE user_economy
+            SET balance = balance + $1, total_earned = total_earned + $1, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = $2 AND guild_id = $3
             `,
-            args: { amount, user_id: toUserId, guild_id: guildId },
-        },
-    ])
+            [amount, toUserId, guildId]
+        )
+
+        await client.query('COMMIT')
+    } catch (e) {
+        await client.query('ROLLBACK')
+        throw e
+    } finally {
+        client.release()
+    }
 
     const [updatedSender, updatedReceiver] = await Promise.all([
         getUserEconomy(fromUserId, guildId),
@@ -488,27 +487,27 @@ export async function modifyBalance(
     guildId: string,
     amount: number
 ): Promise<number> {
-    const db = getDb()
+    const pool = getDb()
     await getUserEconomy(userId, guildId) // レコードを保証
 
     if (amount > 0) {
-        await db.execute({
-            sql: `
+        await pool.query(
+            `
                 UPDATE user_economy
-                SET balance = balance + :amount, total_earned = total_earned + :amount, updated_at = datetime('now')
-                WHERE user_id = :user_id AND guild_id = :guild_id
+                SET balance = balance + $1, total_earned = total_earned + $1, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = $2 AND guild_id = $3
             `,
-            args: { amount, user_id: userId, guild_id: guildId },
-        })
+            [amount, userId, guildId]
+        )
     } else {
-        await db.execute({
-            sql: `
+        await pool.query(
+            `
                 UPDATE user_economy
-                SET balance = MAX(0, balance + :amount), updated_at = datetime('now')
-                WHERE user_id = :user_id AND guild_id = :guild_id
+                SET balance = GREATEST(0, balance + $1), updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = $2 AND guild_id = $3
             `,
-            args: { amount, user_id: userId, guild_id: guildId },
-        })
+            [amount, userId, guildId]
+        )
     }
 
     const updated = await getUserEconomy(userId, guildId)
@@ -522,21 +521,21 @@ export async function getEconomyRanking(
     guildId: string,
     limit = 10
 ): Promise<RankingEntry[]> {
-    const db = getDb()
+    const pool = getDb()
 
-    const result = await db.execute({
-        sql: `
+    const result = await pool.query(
+        `
             SELECT
                 ROW_NUMBER() OVER (ORDER BY balance DESC) AS rank,
                 user_id,
                 balance
             FROM user_economy
-            WHERE guild_id = :guild_id
+            WHERE guild_id = $1
             ORDER BY balance DESC
-            LIMIT :limit
+            LIMIT $2
         `,
-        args: { guild_id: guildId, limit },
-    })
+        [guildId, limit]
+    )
 
     return result.rows as unknown as RankingEntry[]
 }
@@ -562,7 +561,7 @@ export async function recordMessage(
     messageContent: string,
     channelId: string
 ): Promise<boolean> {
-    const db = getDb()
+    const pool = getDb()
     const settings = await getGuildSettings(guildId)
 
     // ─── フィルタリング ─────────────────────────────────────────────────────
@@ -593,19 +592,19 @@ export async function recordMessage(
     // ─── クールダウン＆カウント ─────────────────────────────────────────────
 
     // 現在のレコードを取得（存在保証）
-    await db.execute({
-        sql: `
+    await pool.query(
+        `
             INSERT INTO user_message_stats (user_id, guild_id)
-            VALUES (:user_id, :guild_id)
+            VALUES ($1, $2)
             ON CONFLICT(user_id, guild_id) DO NOTHING
         `,
-        args: { user_id: userId, guild_id: guildId },
-    })
+        [userId, guildId]
+    )
 
-    const statResult = await db.execute({
-        sql: `SELECT last_message_at FROM user_message_stats WHERE user_id = :user_id AND guild_id = :guild_id`,
-        args: { user_id: userId, guild_id: guildId },
-    })
+    const statResult = await pool.query(
+        `SELECT last_message_at FROM user_message_stats WHERE user_id = $1 AND guild_id = $2`,
+        [userId, guildId]
+    )
 
     const lastAt = Number(statResult.rows[0]?.last_message_at ?? 0)
     const now = Date.now()
@@ -613,17 +612,17 @@ export async function recordMessage(
     // クールダウン中はカウントしない
     if (now - lastAt < cooldownMs) return false
 
-    await db.execute({
-        sql: `
+    await pool.query(
+        `
             UPDATE user_message_stats
             SET
                 message_count   = message_count + 1,
-                last_message_at = :now,
-                updated_at      = datetime('now')
-            WHERE user_id = :user_id AND guild_id = :guild_id
+                last_message_at = $1,
+                updated_at      = CURRENT_TIMESTAMP
+            WHERE user_id = $2 AND guild_id = $3
         `,
-        args: { now, user_id: userId, guild_id: guildId },
-    })
+        [now, userId, guildId]
+    )
 
     return true
 }
@@ -635,21 +634,21 @@ export async function getUserMessageStat(
     userId: string,
     guildId: string
 ): Promise<UserMessageStatRow> {
-    const db = getDb()
+    const pool = getDb()
 
-    await db.execute({
-        sql: `
+    await pool.query(
+        `
             INSERT INTO user_message_stats (user_id, guild_id)
-            VALUES (:user_id, :guild_id)
+            VALUES ($1, $2)
             ON CONFLICT(user_id, guild_id) DO NOTHING
         `,
-        args: { user_id: userId, guild_id: guildId },
-    })
+        [userId, guildId]
+    )
 
-    const result = await db.execute({
-        sql: `SELECT * FROM user_message_stats WHERE user_id = :user_id AND guild_id = :guild_id`,
-        args: { user_id: userId, guild_id: guildId },
-    })
+    const result = await pool.query(
+        `SELECT * FROM user_message_stats WHERE user_id = $1 AND guild_id = $2`,
+        [userId, guildId]
+    )
 
     return result.rows[0] as unknown as UserMessageStatRow
 }
@@ -661,21 +660,21 @@ export async function getMessageRanking(
     guildId: string,
     limit = 10
 ): Promise<RankingEntry[]> {
-    const db = getDb()
+    const pool = getDb()
 
-    const result = await db.execute({
-        sql: `
+    const result = await pool.query(
+        `
             SELECT
                 ROW_NUMBER() OVER (ORDER BY message_count DESC) AS rank,
                 user_id,
                 message_count
             FROM user_message_stats
-            WHERE guild_id = :guild_id
+            WHERE guild_id = $1
             ORDER BY message_count DESC
-            LIMIT :limit
+            LIMIT $2
         `,
-        args: { guild_id: guildId, limit },
-    })
+        [guildId, limit]
+    )
 
     return result.rows as unknown as RankingEntry[]
 }
@@ -687,21 +686,21 @@ export async function getUserMessageRank(
     userId: string,
     guildId: string
 ): Promise<number> {
-    const db = getDb()
+    const pool = getDb()
 
-    const result = await db.execute({
-        sql: `
+    const result = await pool.query(
+        `
             SELECT COUNT(*) + 1 AS rank
             FROM user_message_stats
-            WHERE guild_id = :guild_id
+            WHERE guild_id = $1
               AND message_count > (
                   SELECT COALESCE(message_count, 0)
-                  FROM user_message_stats
-                  WHERE user_id = :user_id AND guild_id = :guild_id
+                FROM user_message_stats
+                WHERE user_id = $2 AND guild_id = $1
               )
         `,
-        args: { guild_id: guildId, user_id: userId },
-    })
+        [guildId, userId]
+    )
 
     return Number(result.rows[0]?.rank ?? 1)
 }
@@ -711,22 +710,22 @@ export async function getUserMessageRank(
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export async function getChannels(guildId: string): Promise<ChannelRow[]> {
-    const db = getDb()
-    const result = await db.execute({
-        sql: `SELECT * FROM quote_channels WHERE guild_id = :guild_id`,
-        args: { guild_id: guildId },
-    })
+    const pool = getDb()
+    const result = await pool.query(
+        `SELECT * FROM quote_channels WHERE guild_id = $1`,
+        [guildId]
+    )
     return result.rows as unknown as ChannelRow[]
 }
 
 export async function getChannel(
     channelId: string
 ): Promise<ChannelRow | null> {
-    const db = getDb()
-    const result = await db.execute({
-        sql: `SELECT * FROM quote_channels WHERE channel_id = :channel_id`,
-        args: { channel_id: channelId },
-    })
+    const pool = getDb()
+    const result = await pool.query(
+        `SELECT * FROM quote_channels WHERE channel_id = $1`,
+        [channelId]
+    )
     return (result.rows[0] as unknown as ChannelRow) ?? null
 }
 
@@ -737,48 +736,41 @@ export async function addChannel(
     userId: string,
     username: string
 ): Promise<void> {
-    const db = getDb()
-    await db.execute({
-        sql: `
+    const pool = getDb()
+    await pool.query(
+        `
             INSERT INTO quote_channels (channel_id, guild_id, channel_name, registered_by_user_id, registered_by_username)
-            VALUES (:channel_id, :guild_id, :channel_name, :user_id, :username)
+            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT(channel_id) DO UPDATE SET
-                channel_name = :channel_name,
-                registered_by_user_id = :user_id,
-                registered_by_username = :username
+                channel_name = $3,
+                registered_by_user_id = $4,
+                registered_by_username = $5
         `,
-        args: {
-            channel_id: channelId,
-            guild_id: guildId,
-            channel_name: channelName,
-            user_id: userId,
-            username,
-        },
-    })
+        [channelId, guildId, channelName, userId, username]
+    )
 }
 
 export async function removeChannel(channelId: string): Promise<void> {
-    const db = getDb()
-    await db.execute({
-        sql: `DELETE FROM quote_channels WHERE channel_id = :channel_id`,
-        args: { channel_id: channelId },
-    })
+    const pool = getDb()
+    await pool.query(`DELETE FROM quote_channels WHERE channel_id = $1`, [
+        channelId,
+    ])
 }
 
 export async function updateLastSentDate(
     channelId: string,
     date: string
 ): Promise<void> {
-    const db = getDb()
-    await db.execute({
-        sql: `UPDATE quote_channels SET last_sent_date = :date WHERE channel_id = :channel_id`,
-        args: { date, channel_id: channelId },
-    })
+    const pool = getDb()
+    await pool.query(
+        `UPDATE quote_channels SET last_sent_date = $1 WHERE channel_id = $2`,
+        [date, channelId]
+    )
 }
 
 export async function getQuotes(): Promise<QuoteRow[]> {
-    const db = getDb()
-    const result = await db.execute(`SELECT * FROM quotes ORDER BY RANDOM()`)
+    const pool = getDb()
+    const result = await pool.query(`SELECT * FROM quotes ORDER BY RANDOM()`)
     return result.rows as unknown as QuoteRow[]
 }
 
@@ -787,19 +779,16 @@ export async function addQuote(
     userId: string,
     username: string
 ): Promise<void> {
-    const db = getDb()
-    await db.execute({
-        sql: `INSERT INTO quotes (text, registered_by_user_id, registered_by_username) VALUES (:text, :user_id, :username)`,
-        args: { text, user_id: userId, username },
-    })
+    const pool = getDb()
+    await pool.query(
+        `INSERT INTO quotes (text, registered_by_user_id, registered_by_username) VALUES ($1, $2, $3)`,
+        [text, userId, username]
+    )
 }
 
 export async function removeQuote(id: number): Promise<void> {
-    const db = getDb()
-    await db.execute({
-        sql: `DELETE FROM quotes WHERE id = :id`,
-        args: { id },
-    })
+    const pool = getDb()
+    await pool.query(`DELETE FROM quotes WHERE id = $1`, [id])
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -817,35 +806,33 @@ export async function upsertTicketPanel(
         >
     >
 ): Promise<TicketPanelRow> {
-    const db = getDb()
+    const pool = getDb()
 
-    await db.execute({
-        sql: `
+    await pool.query(
+        `
             INSERT INTO ticket_panels (guild_id, channel_id)
-            VALUES (:guild_id, :channel_id)
+            VALUES ($1, $2)
             ON CONFLICT(guild_id, channel_id) DO NOTHING
         `,
-        args: { guild_id: guildId, channel_id: channelId },
-    })
+        [guildId, channelId]
+    )
 
     const entries = Object.entries(patch)
     if (entries.length > 0) {
-        const setClauses = entries.map(([k]) => `${k} = :${k}`).join(', ')
-        const args: Record<string, InValue> = {
-            guild_id: guildId,
-            channel_id: channelId,
-        }
-        for (const [k, v] of entries) args[k] = v as InValue
-        await db.execute({
-            sql: `UPDATE ticket_panels SET ${setClauses}, updated_at = datetime('now') WHERE guild_id = :guild_id AND channel_id = :channel_id`,
-            args,
-        })
+        const setClauses = entries
+            .map(([k], i) => `${k} = $${i + 3}`)
+            .join(', ')
+        const values = [guildId, channelId, ...entries.map(([, v]) => v)]
+        await pool.query(
+            `UPDATE ticket_panels SET ${setClauses}, updated_at = CURRENT_TIMESTAMP WHERE guild_id = $1 AND channel_id = $2`,
+            values
+        )
     }
 
-    const result = await db.execute({
-        sql: `SELECT * FROM ticket_panels WHERE guild_id = :guild_id AND channel_id = :channel_id`,
-        args: { guild_id: guildId, channel_id: channelId },
-    })
+    const result = await pool.query(
+        `SELECT * FROM ticket_panels WHERE guild_id = $1 AND channel_id = $2`,
+        [guildId, channelId]
+    )
     return result.rows[0] as unknown as TicketPanelRow
 }
 
@@ -853,11 +840,11 @@ export async function upsertTicketPanel(
 export async function getTicketPanelById(
     panelId: number
 ): Promise<TicketPanelRow | null> {
-    const db = getDb()
-    const result = await db.execute({
-        sql: `SELECT * FROM ticket_panels WHERE id = :id`,
-        args: { id: panelId },
-    })
+    const pool = getDb()
+    const result = await pool.query(
+        `SELECT * FROM ticket_panels WHERE id = $1`,
+        [panelId]
+    )
     return result.rows[0] ? (result.rows[0] as unknown as TicketPanelRow) : null
 }
 
@@ -865,11 +852,11 @@ export async function getTicketPanelById(
 export async function getTicketPanelsByGuild(
     guildId: string
 ): Promise<TicketPanelRow[]> {
-    const db = getDb()
-    const result = await db.execute({
-        sql: `SELECT * FROM ticket_panels WHERE guild_id = :guild_id ORDER BY id`,
-        args: { guild_id: guildId },
-    })
+    const pool = getDb()
+    const result = await pool.query(
+        `SELECT * FROM ticket_panels WHERE guild_id = $1 ORDER BY id`,
+        [guildId]
+    )
     return result.rows as unknown as TicketPanelRow[]
 }
 
@@ -878,20 +865,17 @@ export async function updateTicketPanelMessageId(
     panelId: number,
     messageId: string
 ): Promise<void> {
-    const db = getDb()
-    await db.execute({
-        sql: `UPDATE ticket_panels SET message_id = :message_id, updated_at = datetime('now') WHERE id = :id`,
-        args: { message_id: messageId, id: panelId },
-    })
+    const pool = getDb()
+    await pool.query(
+        `UPDATE ticket_panels SET message_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [messageId, panelId]
+    )
 }
 
 /** チケットパネルを削除 */
 export async function deleteTicketPanel(panelId: number): Promise<void> {
-    const db = getDb()
-    await db.execute({
-        sql: `DELETE FROM ticket_panels WHERE id = :id`,
-        args: { id: panelId },
-    })
+    const pool = getDb()
+    await pool.query(`DELETE FROM ticket_panels WHERE id = $1`, [panelId])
 }
 
 /**
@@ -903,16 +887,16 @@ export async function checkTicketCooldown(
     guildId: string,
     cooldownSeconds: number
 ): Promise<{ allowed: boolean; remainingMs?: number }> {
-    const db = getDb()
+    const pool = getDb()
     const now = Date.now()
     const cooldownMs = cooldownSeconds * 1000
 
     let lastAt = 0
     try {
-        const result = await db.execute({
-            sql: `SELECT last_created_at FROM ticket_cooldowns WHERE user_id = :user_id AND guild_id = :guild_id`,
-            args: { user_id: userId, guild_id: guildId },
-        })
+        const result = await pool.query(
+            `SELECT last_created_at FROM ticket_cooldowns WHERE user_id = $1 AND guild_id = $2`,
+            [userId, guildId]
+        )
         if (result.rows[0]) lastAt = Number(result.rows[0].last_created_at)
     } catch {
         /* 行なし */
@@ -929,15 +913,15 @@ export async function updateTicketCooldown(
     userId: string,
     guildId: string
 ): Promise<void> {
-    const db = getDb()
-    await db.execute({
-        sql: `
+    const pool = getDb()
+    await pool.query(
+        `
             INSERT INTO ticket_cooldowns (user_id, guild_id, last_created_at)
-            VALUES (:user_id, :guild_id, :now)
-            ON CONFLICT(user_id, guild_id) DO UPDATE SET last_created_at = :now
+            VALUES ($1, $2, $3)
+            ON CONFLICT(user_id, guild_id) DO UPDATE SET last_created_at = $3
         `,
-        args: { user_id: userId, guild_id: guildId, now: Date.now() },
-    })
+        [userId, guildId, Date.now()]
+    )
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -951,20 +935,15 @@ export async function createRolePanel(
     title: string,
     panelType: 'button' | 'select'
 ): Promise<RolePanelRow> {
-    const db = getDb()
-    const result = await db.execute({
-        sql: `
+    const pool = getDb()
+    const result = await pool.query(
+        `
             INSERT INTO role_panels (guild_id, channel_id, panel_title, panel_type)
-            VALUES (:guild_id, :channel_id, :title, :panel_type)
+            VALUES ($1, $2, $3, $4)
             RETURNING *
         `,
-        args: {
-            guild_id: guildId,
-            channel_id: channelId,
-            title,
-            panel_type: panelType,
-        },
-    })
+        [guildId, channelId, title, panelType]
+    )
     return result.rows[0] as unknown as RolePanelRow
 }
 
@@ -972,11 +951,10 @@ export async function createRolePanel(
 export async function getRolePanelById(
     panelId: number
 ): Promise<RolePanelRow | null> {
-    const db = getDb()
-    const result = await db.execute({
-        sql: `SELECT * FROM role_panels WHERE id = :id`,
-        args: { id: panelId },
-    })
+    const pool = getDb()
+    const result = await pool.query(`SELECT * FROM role_panels WHERE id = $1`, [
+        panelId,
+    ])
     return result.rows[0] ? (result.rows[0] as unknown as RolePanelRow) : null
 }
 
@@ -984,11 +962,11 @@ export async function getRolePanelById(
 export async function getRolePanelsByGuild(
     guildId: string
 ): Promise<RolePanelRow[]> {
-    const db = getDb()
-    const result = await db.execute({
-        sql: `SELECT * FROM role_panels WHERE guild_id = :guild_id ORDER BY id`,
-        args: { guild_id: guildId },
-    })
+    const pool = getDb()
+    const result = await pool.query(
+        `SELECT * FROM role_panels WHERE guild_id = $1 ORDER BY id`,
+        [guildId]
+    )
     return result.rows as unknown as RolePanelRow[]
 }
 
@@ -997,20 +975,17 @@ export async function updateRolePanelMessageId(
     panelId: number,
     messageId: string
 ): Promise<void> {
-    const db = getDb()
-    await db.execute({
-        sql: `UPDATE role_panels SET message_id = :message_id, updated_at = datetime('now') WHERE id = :id`,
-        args: { message_id: messageId, id: panelId },
-    })
+    const pool = getDb()
+    await pool.query(
+        `UPDATE role_panels SET message_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [messageId, panelId]
+    )
 }
 
 /** ロールパネルを削除（アイテムも CASCADE で削除） */
 export async function deleteRolePanel(panelId: number): Promise<void> {
-    const db = getDb()
-    await db.execute({
-        sql: `DELETE FROM role_panels WHERE id = :id`,
-        args: { id: panelId },
-    })
+    const pool = getDb()
+    await pool.query(`DELETE FROM role_panels WHERE id = $1`, [panelId])
 }
 
 /** ロールパネルにロールを追加 */
@@ -1021,31 +996,24 @@ export async function addRolePanelItem(
     emoji: string | null,
     description: string | null
 ): Promise<RolePanelItemRow> {
-    const db = getDb()
+    const pool = getDb()
     // position = 現在の最大 + 1
-    const posResult = await db.execute({
-        sql: `SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM role_panel_items WHERE panel_id = :panel_id`,
-        args: { panel_id: panelId },
-    })
+    const posResult = await pool.query(
+        `SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM role_panel_items WHERE panel_id = $1`,
+        [panelId]
+    )
     const position = Number(posResult.rows[0]?.next_pos ?? 0)
 
-    const result = await db.execute({
-        sql: `
+    const result = await pool.query(
+        `
             INSERT INTO role_panel_items (panel_id, role_id, label, emoji, description, position)
-            VALUES (:panel_id, :role_id, :label, :emoji, :description, :position)
+            VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT(panel_id, role_id) DO UPDATE SET
-                label = :label, emoji = :emoji, description = :description, updated_at = datetime('now')
+                label = $3, emoji = $4, description = $5
             RETURNING *
         `,
-        args: {
-            panel_id: panelId,
-            role_id: roleId,
-            label,
-            emoji: emoji ?? null,
-            description: description ?? null,
-            position,
-        },
-    })
+        [panelId, roleId, label, emoji ?? null, description ?? null, position]
+    )
     return result.rows[0] as unknown as RolePanelItemRow
 }
 
@@ -1054,21 +1022,21 @@ export async function removeRolePanelItem(
     panelId: number,
     roleId: string
 ): Promise<void> {
-    const db = getDb()
-    await db.execute({
-        sql: `DELETE FROM role_panel_items WHERE panel_id = :panel_id AND role_id = :role_id`,
-        args: { panel_id: panelId, role_id: roleId },
-    })
+    const pool = getDb()
+    await pool.query(
+        `DELETE FROM role_panel_items WHERE panel_id = $1 AND role_id = $2`,
+        [panelId, roleId]
+    )
 }
 
 /** ロールパネルのアイテム一覧（position順） */
 export async function getRolePanelItems(
     panelId: number
 ): Promise<RolePanelItemRow[]> {
-    const db = getDb()
-    const result = await db.execute({
-        sql: `SELECT * FROM role_panel_items WHERE panel_id = :panel_id ORDER BY position`,
-        args: { panel_id: panelId },
-    })
+    const pool = getDb()
+    const result = await pool.query(
+        `SELECT * FROM role_panel_items WHERE panel_id = $1 ORDER BY position`,
+        [panelId]
+    )
     return result.rows as unknown as RolePanelItemRow[]
 }

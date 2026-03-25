@@ -1,12 +1,16 @@
-import type { Client } from '@libsql/client'
+import type { Pool } from 'pg'
 
 /**
  * 全テーブルを初期化する。
  * bot起動時に一度だけ呼び出すこと。
  */
-export async function initializeSchema(db: Client): Promise<void> {
-    // ─── サーバー設定 ─────────────────────────────────────────────────────────
-    await db.execute(`
+export async function initializeSchema(db: Pool): Promise<void> {
+    const client = await db.connect()
+    try {
+        await client.query('BEGIN')
+
+        // ─── サーバー設定 ─────────────────────────────────────────────────────────
+        await client.query(`
         CREATE TABLE IF NOT EXISTS guild_settings (
             guild_id                TEXT PRIMARY KEY,
             support_role_id         TEXT,
@@ -22,72 +26,72 @@ export async function initializeSchema(db: Client): Promise<void> {
             xp_multiplier           REAL NOT NULL DEFAULT 1.0,
             min_message_length      INTEGER NOT NULL DEFAULT 5,
             message_cooldown_seconds INTEGER NOT NULL DEFAULT 60,
-            created_at              TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at              TEXT NOT NULL DEFAULT (datetime('now'))
+            created_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     `)
 
-    // ─── レベリング ───────────────────────────────────────────────────────────
-    await db.execute(`
+        // ─── レベリング ───────────────────────────────────────────────────────────
+        await client.query(`
         CREATE TABLE IF NOT EXISTS user_levels (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            id          SERIAL PRIMARY KEY,
             user_id     TEXT NOT NULL,
             guild_id    TEXT NOT NULL,
             xp          INTEGER NOT NULL DEFAULT 0,
             level       INTEGER NOT NULL DEFAULT 1,
-            total_xp    INTEGER NOT NULL DEFAULT 0,
-            last_xp_at  INTEGER NOT NULL DEFAULT 0,
-            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            total_xp    BIGINT NOT NULL DEFAULT 0,
+            last_xp_at  BIGINT NOT NULL DEFAULT 0,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(user_id, guild_id)
         )
     `)
-    await db.execute(`
+        await client.query(`
         CREATE INDEX IF NOT EXISTS idx_user_levels_guild
         ON user_levels(guild_id, total_xp DESC)
     `)
 
-    // ─── 経済システム ─────────────────────────────────────────────────────────
-    await db.execute(`
+        // ─── 経済システム ─────────────────────────────────────────────────────────
+        await client.query(`
         CREATE TABLE IF NOT EXISTS user_economy (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            id              SERIAL PRIMARY KEY,
             user_id         TEXT NOT NULL,
             guild_id        TEXT NOT NULL,
-            balance         INTEGER NOT NULL DEFAULT 0,
-            total_earned    INTEGER NOT NULL DEFAULT 0,
+            balance         BIGINT NOT NULL DEFAULT 0,
+            total_earned    BIGINT NOT NULL DEFAULT 0,
             last_daily_date TEXT,
-            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(user_id, guild_id)
         )
     `)
-    await db.execute(`
+        await client.query(`
         CREATE INDEX IF NOT EXISTS idx_user_economy_guild
         ON user_economy(guild_id, balance DESC)
     `)
 
-    // ─── メッセージ統計 ───────────────────────────────────────────────────────
-    await db.execute(`
+        // ─── メッセージ統計 ───────────────────────────────────────────────────────
+        await client.query(`
         CREATE TABLE IF NOT EXISTS user_message_stats (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            id              SERIAL PRIMARY KEY,
             user_id         TEXT NOT NULL,
             guild_id        TEXT NOT NULL,
             message_count   INTEGER NOT NULL DEFAULT 0,
-            last_message_at INTEGER NOT NULL DEFAULT 0,
-            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            last_message_at BIGINT NOT NULL DEFAULT 0,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(user_id, guild_id)
         )
     `)
-    await db.execute(`
+        await client.query(`
         CREATE INDEX IF NOT EXISTS idx_user_message_stats_guild
         ON user_message_stats(guild_id, message_count DESC)
     `)
 
-    // ─── チケット ─────────────────────────────────────────────────────────────
-    await db.execute(`
+        // ─── チケット ─────────────────────────────────────────────────────────────
+        await client.query(`
         CREATE TABLE IF NOT EXISTS ticket_panels (
-            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            id                  SERIAL PRIMARY KEY,
             guild_id            TEXT NOT NULL,
             channel_id          TEXT NOT NULL,
             message_id          TEXT,
@@ -96,41 +100,41 @@ export async function initializeSchema(db: Client): Promise<void> {
             button_label        TEXT NOT NULL DEFAULT '🎫 チケットを作成',
             ticket_category_id  TEXT,
             cooldown_seconds    INTEGER NOT NULL DEFAULT 300,
-            created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(guild_id, channel_id)
         )
     `)
-    await db.execute(`
+        await client.query(`
         CREATE TABLE IF NOT EXISTS ticket_cooldowns (
             user_id         TEXT NOT NULL,
             guild_id        TEXT NOT NULL,
-            last_created_at INTEGER NOT NULL DEFAULT 0,
+            last_created_at BIGINT NOT NULL DEFAULT 0,
             PRIMARY KEY (user_id, guild_id)
         )
     `)
 
-    // ─── ロールパネル ─────────────────────────────────────────────────────────
-    await db.execute(`
+        // ─── ロールパネル ─────────────────────────────────────────────────────────
+        await client.query(`
         CREATE TABLE IF NOT EXISTS role_panels (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            id              SERIAL PRIMARY KEY,
             guild_id        TEXT NOT NULL,
             channel_id      TEXT NOT NULL,
             message_id      TEXT,
             panel_title     TEXT NOT NULL,
             panel_description TEXT,
             panel_type      TEXT NOT NULL DEFAULT 'button',
-            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     `)
-    await db.execute(`
+        await client.query(`
         CREATE INDEX IF NOT EXISTS idx_role_panels_guild
         ON role_panels(guild_id)
     `)
-    await db.execute(`
+        await client.query(`
         CREATE TABLE IF NOT EXISTS role_panel_items (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            id          SERIAL PRIMARY KEY,
             panel_id    INTEGER NOT NULL REFERENCES role_panels(id) ON DELETE CASCADE,
             role_id     TEXT NOT NULL,
             label       TEXT NOT NULL,
@@ -141,26 +145,33 @@ export async function initializeSchema(db: Client): Promise<void> {
         )
     `)
 
-    // ─── 既存テーブル（Quotes） ───────────────────────────────────────────────
-    await db.execute(`
+        // ─── 既存テーブル（Quotes） ───────────────────────────────────────────────
+        await client.query(`
         CREATE TABLE IF NOT EXISTS quote_channels (
-            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            id                      SERIAL PRIMARY KEY,
             channel_id              TEXT NOT NULL UNIQUE,
             guild_id                TEXT NOT NULL,
             channel_name            TEXT NOT NULL,
             registered_by_user_id   TEXT NOT NULL,
             registered_by_username  TEXT NOT NULL,
             last_sent_date          TEXT,
-            created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+            created_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     `)
-    await db.execute(`
+        await client.query(`
         CREATE TABLE IF NOT EXISTS quotes (
-            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            id                      SERIAL PRIMARY KEY,
             text                    TEXT NOT NULL,
             registered_by_user_id   TEXT NOT NULL,
             registered_by_username  TEXT NOT NULL,
-            created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+            created_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     `)
+        await client.query('COMMIT')
+    } catch (error) {
+        await client.query('ROLLBACK')
+        throw error
+    } finally {
+        client.release()
+    }
 }

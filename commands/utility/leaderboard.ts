@@ -63,7 +63,7 @@ export default {
                 )
 
                 infoEmbed
-                    .setTitle(`📈 ${guild.name} レベルランキング`)
+                    .setTitle(`📈 レベルランキング`)
                     .setDescription(lines.join('\n'))
                     .setFields([])
                     .setThumbnail(guild.iconURL())
@@ -97,7 +97,7 @@ export default {
                 )
 
                 infoEmbed
-                    .setTitle(`💰 ${guild.name} 所持金ランキング`)
+                    .setTitle(`💰 所持金ランキング`)
                     .setDescription(lines.join('\n'))
                     .setFields([])
                     .setThumbnail(guild.iconURL())
@@ -130,15 +130,11 @@ export default {
                 )
 
                 infoEmbed
-                    .setTitle(`💬 ${guild.name} メッセージランキング`)
+                    .setTitle(`💬 メッセージランキング`)
                     .setDescription(lines.join('\n'))
-                    .setFields([
-                        {
-                            name: '📌 集計条件',
-                            value: `${minLen}文字以上のメッセージのみカウント`,
-                            inline: false,
-                        },
-                    ])
+                    .setFooter({
+                        text: `※${minLen}文字以上のメッセージのみカウントされています。`,
+                    })
                     .setThumbnail(guild.iconURL())
 
                 await interaction.editReply({ embeds: [infoEmbed] })
