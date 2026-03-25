@@ -14,6 +14,7 @@ import type {
     TicketCooldownRow,
     RolePanelRow,
     RolePanelItemRow,
+    TtsSettingsRow,
 } from '../types/db'
 
 // ─── 再エクスポート ────────────────────────────────────────────────────────────
@@ -31,6 +32,7 @@ export type {
     TicketCooldownRow,
     RolePanelRow,
     RolePanelItemRow,
+    TtsSettingsRow,
 }
 
 // PostgresでBIGINTを数値として扱う（デフォルトは文字列）
@@ -1039,4 +1041,40 @@ export async function getRolePanelItems(
         [panelId]
     )
     return result.rows as unknown as RolePanelItemRow[]
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── TTS ──────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** TTS設定を保存（UPSERT） */
+export async function setTtsSettings(
+    guildId: string,
+    textChannelId: string,
+    voiceChannelId: string
+): Promise<void> {
+    const pool = getDb()
+    await pool.query(
+        `
+            INSERT INTO tts_settings (guild_id, text_channel_id, voice_channel_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (guild_id) DO UPDATE SET
+                text_channel_id = $2,
+                voice_channel_id = $3
+        `,
+        [guildId, textChannelId, voiceChannelId]
+    )
+}
+
+/** TTS設定を取得 */
+export async function getTtsSettings(guildId: string): Promise<TtsSettingsRow | null> {
+    const pool = getDb()
+    const result = await pool.query(`SELECT * FROM tts_settings WHERE guild_id = $1`, [guildId])
+    return (result.rows[0] as unknown as TtsSettingsRow) ?? null
+}
+
+/** TTS設定を削除 */
+export async function deleteTtsSettings(guildId: string): Promise<void> {
+    const pool = getDb()
+    await pool.query(`DELETE FROM tts_settings WHERE guild_id = $1`, [guildId])
 }

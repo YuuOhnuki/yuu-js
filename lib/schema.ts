@@ -167,6 +167,16 @@ export async function initializeSchema(db: Pool): Promise<void> {
             created_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     `)
+
+        // ─── TTS ─────────────────────────────────────────────────────────────
+        await client.query(`
+        CREATE TABLE IF NOT EXISTS tts_settings (
+            guild_id        TEXT PRIMARY KEY,
+            text_channel_id TEXT NOT NULL,
+            voice_channel_id TEXT NOT NULL,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `)
         await client.query('COMMIT')
     } catch (error) {
         await client.query('ROLLBACK')

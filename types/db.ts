@@ -297,3 +297,11 @@ export interface RolePanelItemRow {
     description: string | null
     position: number
 }
+
+// ─── TTS ──────────────────────────────────────────────────────────────────
+export interface TtsSettingsRow {
+    guild_id: string
+    text_channel_id: string
+    voice_channel_id: string
+    created_at: string
+}
