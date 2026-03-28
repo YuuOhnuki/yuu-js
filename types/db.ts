@@ -305,3 +305,22 @@ export interface TtsSettingsRow {
     voice_channel_id: string
     created_at: string
 }
+
+export interface UserTtsPresets {
+    user_id: string
+    preset_id: number
+
+    speaker_uuid: string
+    style_id: number
+    speedScale: number
+    pitchScale: number
+    intonationScale: number
+    volumeScale: number
+    prePhonemeLength: number
+    postPhonemeLength: number
+    pauseLength: number
+    pauseLengthScale: number
+
+    created_at: string
+    updated_at: string
+}

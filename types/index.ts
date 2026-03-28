@@ -1,4 +1,5 @@
 import type {
+    AutocompleteInteraction,
     ChatInputCommandInteraction,
     Collection,
     SlashCommandBuilder,
@@ -7,6 +8,7 @@ import type {
 export interface Command {
     data: SlashCommandBuilder
     execute: (interaction: ChatInputCommandInteraction) => Promise<void>
+    autocomplete?: (interaction: AutocompleteInteraction) => Promise<void>
 }
 
 declare module 'discord.js' {

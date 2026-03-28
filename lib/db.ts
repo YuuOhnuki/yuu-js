@@ -15,6 +15,7 @@ import type {
     RolePanelRow,
     RolePanelItemRow,
     TtsSettingsRow,
+    UserTtsPresets,
 } from '../types/db'
 
 // ─── 再エクスポート ────────────────────────────────────────────────────────────
@@ -36,7 +37,8 @@ export type {
 }
 
 // PostgresでBIGINTを数値として扱う（デフォルトは文字列）
-types.setTypeParser(types.builtins.INT8, (val) => parseInt(val, 10))
+// DiscordのID（Snowflake）等の巨大な数値を安全に扱うため、parseIntは避け、必要に応じて各関数内で変換します
+types.setTypeParser(types.builtins.INT8, (val) => val)
 types.setTypeParser(types.builtins.NUMERIC, (val) => parseFloat(val))
 
 // ─── ユーティリティ ───────────────────────────────────────────────────────────
@@ -251,7 +253,7 @@ export async function addXp(
     }
 
     const gainedXp = Math.round(baseXp * (settings.xp_multiplier ?? 1.0))
-    const newTotalXp = data.total_xp + gainedXp
+    const newTotalXp = Number(data.total_xp) + gainedXp
     const { level: newLevel, xp: newXp } = levelFromTotalXp(newTotalXp)
     const leveled = newLevel > data.level
 
@@ -1067,9 +1069,14 @@ export async function setTtsSettings(
 }
 
 /** TTS設定を取得 */
-export async function getTtsSettings(guildId: string): Promise<TtsSettingsRow | null> {
+export async function getTtsSettings(
+    guildId: string
+): Promise<TtsSettingsRow | null> {
     const pool = getDb()
-    const result = await pool.query(`SELECT * FROM tts_settings WHERE guild_id = $1`, [guildId])
+    const result = await pool.query(
+        `SELECT * FROM tts_settings WHERE guild_id = $1`,
+        [guildId]
+    )
     return (result.rows[0] as unknown as TtsSettingsRow) ?? null
 }
 
@@ -1077,4 +1084,99 @@ export async function getTtsSettings(guildId: string): Promise<TtsSettingsRow | 
 export async function deleteTtsSettings(guildId: string): Promise<void> {
     const pool = getDb()
     await pool.query(`DELETE FROM tts_settings WHERE guild_id = $1`, [guildId])
+}
+
+/**
+ * ユーザー個別のTTS設定を取得する
+ */
+export async function getUserTtsPresets(
+    userId: string
+): Promise<UserTtsPresets | null> {
+    const pool = getDb()
+    const result = await pool.query(
+        `SELECT * FROM user_tts_presets WHERE user_id = $1`,
+        [userId]
+    )
+
+    if (result.rows.length === 0) return null
+    const row = result.rows[0]
+
+    // DB (snake_case) -> TS (camelCase) の変換
+    return {
+        user_id: row.user_id,
+        preset_id: row.preset_id,
+        speaker_uuid: row.speaker_uuid,
+        style_id: row.style_id,
+        speedScale: row.speed_scale,
+        pitchScale: row.pitch_scale,
+        intonationScale: row.intonation_scale,
+        volumeScale: row.volume_scale,
+        prePhonemeLength: row.pre_phoneme_length,
+        postPhonemeLength: row.post_phoneme_length,
+        pauseLength: row.pause_length,
+        pauseLengthScale: row.pause_length_scale,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    }
+}
+
+/**
+ * ユーザー個別のTTS設定を更新（存在しない場合は作成）する
+ */
+export async function updateUserTtsPresets(
+    userId: string,
+    patch: Partial<
+        Omit<UserTtsPresets, 'user_id' | 'created_at' | 'updated_at'>
+    >
+): Promise<UserTtsPresets | null> {
+    const pool = getDb()
+
+    // 初期レコードの存在を保証
+    await pool.query(
+        `INSERT INTO user_tts_presets (user_id) VALUES ($1) ON CONFLICT(user_id) DO NOTHING`,
+        [userId]
+    )
+
+    const mapping: Record<string, string> = {
+        preset_id: 'preset_id',
+        speaker_uuid: 'speaker_uuid',
+        style_id: 'style_id',
+        speedScale: 'speed_scale',
+        pitchScale: 'pitch_scale',
+        intonationScale: 'intonation_scale',
+        volumeScale: 'volume_scale',
+        prePhonemeLength: 'pre_phoneme_length',
+        postPhonemeLength: 'post_phoneme_length',
+        pauseLength: 'pause_length',
+        pauseLengthScale: 'pause_length_scale',
+    }
+
+    const entries = Object.entries(patch)
+    if (entries.length === 0) return getUserTtsPresets(userId)
+
+    const setClauses = entries
+        .map(([key], i) => `${mapping[key] || key} = $${i + 2}`)
+        .join(', ')
+    const values = [userId, ...entries.map(([, v]) => v)]
+
+    await pool.query(
+        `
+            UPDATE user_tts_presets
+            SET ${setClauses}, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = $1
+        `,
+        values
+    )
+
+    return getUserTtsPresets(userId)
+}
+
+/**
+ * ユーザー個別のTTS設定を削除する
+ */
+export async function deleteUserTtsPresets(userId: string): Promise<void> {
+    const pool = getDb()
+    await pool.query(`DELETE FROM user_tts_presets WHERE user_id = $1`, [
+        userId,
+    ])
 }

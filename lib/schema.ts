@@ -177,6 +177,26 @@ export async function initializeSchema(db: Pool): Promise<void> {
             created_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     `)
+
+        // ─── ユーザーごとのTTS設定 ──────────────────────────────────────────────────
+        await client.query(`
+        CREATE TABLE IF NOT EXISTS user_tts_presets (
+            user_id                 TEXT PRIMARY KEY,
+            preset_id               BIGINT,
+            speaker_uuid            TEXT,
+            style_id                INTEGER,
+            speed_scale             REAL,
+            pitch_scale             REAL,
+            intonation_scale        REAL,
+            volume_scale            REAL,
+            pre_phoneme_length      REAL,
+            post_phoneme_length     REAL,
+            pause_length            REAL,
+            pause_length_scale      REAL,
+            created_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `)
         await client.query('COMMIT')
     } catch (error) {
         await client.query('ROLLBACK')

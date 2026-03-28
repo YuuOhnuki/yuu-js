@@ -1,0 +1,36 @@
+name: Version Bump
+
+on:
+    push:
+        tags:
+            - 'v*'
+
+jobs:
+    bump-version:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '20'
+
+            - name: Extract version from tag
+              id: extract_version
+              run: |
+                  echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+                  echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+            - name: Update package.json version
+              run: |
+                  npm version ${{ steps.extract_version.outputs.VERSION }} --no-git-tag-version
+
+            - name: Commit and push version update
+              run: |
+                  git config --local user.email "action@github.com"
+                  git config --local user.name "GitHub Action"
+                  git add package.json
+                  git commit -m "Bump version to ${{ steps.extract_version.outputs.VERSION }}"
+                  git push

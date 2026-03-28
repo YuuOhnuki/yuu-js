@@ -30,6 +30,19 @@ export default {
             return
         }
 
+        // ── オートコンプリート ────────────────────────────────────────────────
+        if (interaction.isAutocomplete()) {
+            const command = client.slashCommands.get(interaction.commandName)
+            if (!command || !command.autocomplete) return
+
+            try {
+                await command.autocomplete(interaction)
+            } catch (err) {
+                console.error(err)
+            }
+            return
+        }
+
         // ── /help のセレクトメニュー ──────────────────────────────────────────
         if (
             interaction.isStringSelectMenu() &&
