@@ -3,7 +3,7 @@ import {
     ChatInputCommandInteraction,
     MessageFlags,
 } from 'discord.js'
-import { errorEmbed, infoEmbed } from '../../lib/embed'
+import { createErrorEmbed, createInfoEmbed } from '../../lib/embed'
 import {
     getLevelRanking,
     getEconomyRanking,
@@ -31,118 +31,84 @@ export default {
         ),
 
     async execute(interaction: ChatInputCommandInteraction) {
-        try {
-            await interaction.deferReply()
+        const type = interaction.options.getString('type') ?? 'level'
+        const guildId = interaction.guildId!
+        const guild = interaction.guild!
 
-            const type = interaction.options.getString('type') ?? 'level'
-            const guildId = interaction.guildId!
-            const guild = interaction.guild!
-            const settings = await getGuildSettings(guildId)
+        await interaction.deferReply()
 
-            if (type === 'level') {
-                const ranking = await getLevelRanking(guildId, 10)
+        const settings = await getGuildSettings(guildId)
 
-                if (ranking.length === 0) {
-                    infoEmbed
-                        .setTitle('📈 レベルランキング')
-                        .setDescription('まだデータがありません。')
-                        .setFields([])
-                    return await interaction.editReply({ embeds: [infoEmbed] })
-                }
+        if (type === 'level') {
+            const ranking = await getLevelRanking(guildId, 10)
 
-                // ユーザー名を取得（キャッシュ優先）
-                const lines = await Promise.all(
-                    ranking.map(async (entry, i) => {
-                        const member = await guild.members
-                            .fetch(entry.user_id)
-                            .catch(() => null)
-                        const name =
-                            member?.displayName ?? `<@${entry.user_id}>`
-                        return `${rankLabel(i)} ${name} — Lv.**${entry.level}** \`${(entry.total_xp ?? 0).toLocaleString()} XP\``
-                    })
-                )
-
-                infoEmbed
-                    .setTitle(`📈 レベルランキング`)
-                    .setDescription(lines.join('\n'))
-                    .setFields([])
-                    .setThumbnail(guild.iconURL())
-
-                await interaction.editReply({ embeds: [infoEmbed] })
+            if (ranking.length === 0) {
+                const embed = createInfoEmbed()
+                    .setTitle('レベルランキング')
+                    .setDescription('まだデータがありません。')
+                return await interaction.editReply({
+                    embeds: [embed],
+                })
             }
 
-            if (type === 'economy') {
-                const ranking = await getEconomyRanking(guildId, 10)
+            const lines = ranking.map((entry, i) => {
+                return `${rankLabel(i)} <@${entry.user_id}> — Lv.**${entry.level}** \`${(entry.total_xp ?? 0).toLocaleString()} XP\``
+            })
 
-                if (ranking.length === 0) {
-                    infoEmbed
-                        .setTitle('💰 所持金ランキング')
-                        .setDescription('まだデータがありません。')
-                        .setFields([])
-                    return await interaction.editReply({ embeds: [infoEmbed] })
-                }
+            const embed = createInfoEmbed()
+                .setTitle(`レベルランキング`)
+                .setDescription(lines.join('\n'))
+                .setThumbnail(guild.iconURL())
 
-                const emoji = settings.currency_emoji ?? '🪙'
-                const name = settings.currency_name ?? 'コイン'
+            await interaction.editReply({ embeds: [embed] })
+        } else if (type === 'economy') {
+            const ranking = await getEconomyRanking(guildId, 10)
 
-                const lines = await Promise.all(
-                    ranking.map(async (entry, i) => {
-                        const member = await guild.members
-                            .fetch(entry.user_id)
-                            .catch(() => null)
-                        const displayName =
-                            member?.displayName ?? `<@${entry.user_id}>`
-                        return `${rankLabel(i)} ${displayName} — ${emoji} **${(entry.balance ?? 0).toLocaleString()}** ${name}`
-                    })
-                )
-
-                infoEmbed
-                    .setTitle(`💰 所持金ランキング`)
-                    .setDescription(lines.join('\n'))
-                    .setFields([])
-                    .setThumbnail(guild.iconURL())
-
-                await interaction.editReply({ embeds: [infoEmbed] })
+            if (ranking.length === 0) {
+                const embed = createInfoEmbed()
+                    .setTitle('所持金ランキング')
+                    .setDescription('まだデータがありません。')
+                return await interaction.editReply({ embeds: [embed] })
             }
 
-            if (type === 'messages') {
-                const ranking = await getMessageRanking(guildId, 10)
+            const emoji = settings.currency_emoji ?? '🪙'
+            const name = settings.currency_name ?? 'コイン'
 
-                if (ranking.length === 0) {
-                    infoEmbed
-                        .setTitle('💬 メッセージランキング')
-                        .setDescription('まだデータがありません。')
-                        .setFields([])
-                    return await interaction.editReply({ embeds: [infoEmbed] })
-                }
+            const lines = ranking.map((entry, i) => {
+                return `${rankLabel(i)} <@${entry.user_id}> — ${emoji} **${(entry.balance ?? 0).toLocaleString()}** ${name}`
+            })
 
-                const minLen = settings.min_message_length ?? 5
+            const embed = createInfoEmbed()
+                .setTitle(`所持金ランキング`)
+                .setDescription(lines.join('\n'))
+                .setThumbnail(guild.iconURL())
 
-                const lines = await Promise.all(
-                    ranking.map(async (entry, i) => {
-                        const member = await guild.members
-                            .fetch(entry.user_id)
-                            .catch(() => null)
-                        const displayName =
-                            member?.displayName ?? `<@${entry.user_id}>`
-                        return `${rankLabel(i)} ${displayName} — 💬 **${(entry.message_count ?? 0).toLocaleString()}** メッセージ`
-                    })
-                )
+            await interaction.editReply({ embeds: [embed] })
+        } else if (type === 'messages') {
+            const ranking = await getMessageRanking(guildId, 10)
 
-                infoEmbed
-                    .setTitle(`💬 メッセージランキング`)
-                    .setDescription(lines.join('\n'))
-                    .setFooter({
-                        text: `※${minLen}文字以上のメッセージのみカウントされています。`,
-                    })
-                    .setThumbnail(guild.iconURL())
-
-                await interaction.editReply({ embeds: [infoEmbed] })
+            if (ranking.length === 0) {
+                const embed = createInfoEmbed()
+                    .setTitle('メッセージランキング')
+                    .setDescription('まだデータがありません。')
+                return await interaction.editReply({ embeds: [embed] })
             }
-        } catch (error: any) {
-            console.error(error)
-            errorEmbed.setDescription(error.message)
-            await interaction.editReply({ embeds: [errorEmbed] })
+
+            const minLen = settings.min_message_length ?? 5
+
+            const lines = ranking.map((entry, i) => {
+                return `${rankLabel(i)} <@${entry.user_id}> — **${(entry.message_count ?? 0).toLocaleString()}** メッセージ`
+            })
+
+            const embed = createInfoEmbed()
+                .setTitle(`メッセージランキング`)
+                .setDescription(lines.join('\n'))
+                .setFooter({
+                    text: `※${minLen}文字以上のメッセージのみカウントされています。`,
+                })
+                .setThumbnail(guild.iconURL())
+
+            await interaction.editReply({ embeds: [embed] })
         }
     },
 }

@@ -6,7 +6,11 @@ import {
     EmbedBuilder,
 } from 'discord.js'
 import { getSpeakerUuidByStyleId, VoicevoxClient } from '../../lib/voicevox'
-import { errorEmbed, successEmbed } from '../../lib/embed'
+import {
+    createErrorEmbed,
+    createSuccessEmbed,
+    createInfoEmbed,
+} from '../../lib/embed'
 import { getUserTtsPresets, updateUserTtsPresets } from '../../lib/db'
 
 export default {
@@ -168,8 +172,7 @@ export default {
                     pauseLengthScale: 1.0,
                 })
 
-                successEmbed.setFields([]) // 前回の表示内容をクリア
-                successEmbed.addFields(
+                const embed = createSuccessEmbed().addFields(
                     {
                         name: 'スピーカー',
                         value: speaker.toString(),
@@ -196,28 +199,27 @@ export default {
                         inline: true,
                     }
                 )
-                await interaction.editReply({ embeds: [successEmbed] })
-            } catch (error: any) {
-                console.error(error)
-                errorEmbed.setDescription(error.message)
-                await interaction.editReply({
-                    embeds: [errorEmbed],
-                })
-            }
+                await interaction.editReply({ embeds: [embed] })
+            } catch (err) {
+                throw err
+            } // 共通ハンドラへ
         } else if (sub === 'show') {
             const s = await getUserTtsPresets(interaction.user.id)
             if (!s || !s.preset_id) {
-                errorEmbed.setDescription('プリセットが存在しません。')
-                return await interaction.editReply({ embeds: [errorEmbed] })
+                return await interaction.reply({
+                    embeds: [createErrorEmbed('プリセットが見つかりません。')],
+                    flags: [MessageFlags.Ephemeral],
+                })
             }
 
             const presets = await VoicevoxClient.getPresets()
             const presetDetails = presets.find((p) => p.id === s.preset_id)
 
             if (!presetDetails) {
-                errorEmbed.setDescription(
-                    'エンジン側にプリセットが見つかりませんでした。'
-                )
+                return await interaction.reply({
+                    embeds: [createErrorEmbed('プリセットが見つかりません。')],
+                    flags: [MessageFlags.Ephemeral],
+                })
             } else {
                 const display = {
                     speaker: presetDetails.style_id,

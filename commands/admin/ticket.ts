@@ -22,7 +22,11 @@ import {
     ActionRowBuilder,
     type TextChannel,
 } from 'discord.js'
-import { errorEmbed, infoEmbed } from '../../lib/embed'
+import {
+    createErrorEmbed,
+    createInfoEmbed,
+    createSuccessEmbed,
+} from '../../lib/embed'
 import {
     upsertTicketPanel,
     getTicketPanelsByGuild,
@@ -121,7 +125,6 @@ export default {
         ),
 
     async execute(interaction: ChatInputCommandInteraction) {
-        try {
             const sub = interaction.options.getSubcommand()
             const guildId = interaction.guildId!
             const guild = interaction.guild!
@@ -162,7 +165,7 @@ export default {
                 const msg = await channel.send({ embeds, components })
                 await updateTicketPanelMessageId(panel.id, msg.id)
 
-                infoEmbed
+                const embed = createInfoEmbed()
                     .setTitle('✅ チケットパネルを設置しました')
                     .setDescription(`<#${channel.id}> にパネルを投稿しました。`)
                     .setFields([
@@ -179,7 +182,7 @@ export default {
                         },
                     ])
 
-                await interaction.editReply({ embeds: [infoEmbed] })
+                await interaction.editReply({ embeds: [embed] })
             }
 
             // ── edit ──────────────────────────────────────────────────────────
@@ -192,10 +195,7 @@ export default {
                 const panel = await getTicketPanelById(panelId)
 
                 if (!panel || panel.guild_id !== guildId) {
-                    errorEmbed.setDescription(
-                        '指定されたパネルが見つかりません。'
-                    )
-                    return await interaction.editReply({ embeds: [errorEmbed] })
+                    return await interaction.editReply({ embeds: [createErrorEmbed('指定されたパネルが見つかりません。')] })
                 }
 
                 const patch: Record<string, string | number> = {}
@@ -234,14 +234,13 @@ export default {
                 const newMsg = await ch.send({ embeds, components })
                 await updateTicketPanelMessageId(panelId, newMsg.id)
 
-                infoEmbed
+                const embed = createInfoEmbed()
                     .setTitle('✅ パネルを更新しました')
                     .setDescription(
                         `<#${panel.channel_id}> のパネルを再投稿しました。`
                     )
-                    .setFields([])
 
-                await interaction.editReply({ embeds: [infoEmbed] })
+                await interaction.editReply({ embeds: [embed] })
             }
 
             // ── list ──────────────────────────────────────────────────────────
@@ -249,14 +248,14 @@ export default {
                 const panels = await getTicketPanelsByGuild(guildId)
 
                 if (panels.length === 0) {
-                    infoEmbed
-                        .setTitle('🎫 チケットパネル一覧')
+                    const embed = createInfoEmbed()
+                        .setTitle('チケットパネル一覧')
                         .setDescription(
                             'まだパネルがありません。`/ticket setup` で作成してください。'
                         )
                         .setFields([])
                     return await interaction.reply({
-                        embeds: [infoEmbed],
+                        embeds: [embed],
                         flags: [MessageFlags.Ephemeral],
                     })
                 }
@@ -270,9 +269,11 @@ export default {
                     inline: false,
                 }))
 
-                infoEmbed.setTitle('🎫 チケットパネル一覧').setFields(fields)
+                const embed = createInfoEmbed()
+                    .setTitle('チケットパネル一覧')
+                    .setFields(fields)
                 await interaction.reply({
-                    embeds: [infoEmbed],
+                    embeds: [embed],
                     flags: [MessageFlags.Ephemeral],
                 })
             }
@@ -287,10 +288,7 @@ export default {
                 const panel = await getTicketPanelById(panelId)
 
                 if (!panel || panel.guild_id !== guildId) {
-                    errorEmbed.setDescription(
-                        '指定されたパネルが見つかりません。'
-                    )
-                    return await interaction.editReply({ embeds: [errorEmbed] })
+                    return await interaction.editReply({ embeds: [createErrorEmbed('指定されたパネルが見つかりません。')] })
                 }
 
                 // メッセージ削除
@@ -306,26 +304,12 @@ export default {
 
                 await deleteTicketPanel(panelId)
 
-                infoEmbed
-                    .setTitle('✅ パネルを削除しました')
+                const embed = createSuccessEmbed()
+                    .setTitle('パネルを削除しました')
                     .setDescription(`パネル ID \`${panelId}\` を削除しました。`)
                     .setFields([])
 
-                await interaction.editReply({ embeds: [infoEmbed] })
+                await interaction.editReply({ embeds: [embed] })
             }
-        } catch (error: unknown) {
-            console.error(error)
-            const message =
-                error instanceof Error ? error.message : '不明なエラー'
-            errorEmbed.setDescription(message)
-            if (interaction.deferred) {
-                await interaction.editReply({ embeds: [errorEmbed] })
-            } else {
-                await interaction.reply({
-                    embeds: [errorEmbed],
-                    flags: [MessageFlags.Ephemeral],
-                })
-            }
-        }
     },
 }

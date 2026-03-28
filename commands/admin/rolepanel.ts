@@ -29,7 +29,11 @@ import {
     type ButtonInteraction,
     type StringSelectMenuInteraction,
 } from 'discord.js'
-import { errorEmbed, infoEmbed } from '../../lib/embed'
+import {
+    createErrorEmbed,
+    createInfoEmbed,
+    createSuccessEmbed,
+} from '../../lib/embed'
 import {
     createRolePanel,
     getRolePanelById,
@@ -67,11 +71,11 @@ export default {
                         .setRequired(true)
                         .addChoices(
                             {
-                                name: '🔘 ボタン（個別トグル）',
+                                name: 'ボタン',
                                 value: 'button',
                             },
                             {
-                                name: '📋 セレクトメニュー（複数選択）',
+                                name: 'セレクトメニュー',
                                 value: 'select',
                             }
                         )
@@ -122,201 +126,176 @@ export default {
         ),
 
     async execute(interaction: ChatInputCommandInteraction) {
-        try {
-            const sub = interaction.options.getSubcommand()
-            const guildId = interaction.guildId!
-            const guild = interaction.guild!
+        const sub = interaction.options.getSubcommand()
+        const guildId = interaction.guildId!
+        const guild = interaction.guild!
 
-            // ── create ────────────────────────────────────────────────────────
-            if (sub === 'create') {
-                const title = interaction.options.getString('title', true)
-                const type = interaction.options.getString('type', true) as
-                    | 'button'
-                    | 'select'
-                const channel = interaction.options.getChannel(
-                    'channel',
-                    true
-                ) as TextChannel
+        // ── create ────────────────────────────────────────────────────────
+        if (sub === 'create') {
+            const title = interaction.options.getString('title', true)
+            const type = interaction.options.getString('type', true) as
+                | 'button'
+                | 'select'
+            const channel = interaction.options.getChannel(
+                'channel',
+                true
+            ) as TextChannel
 
-                // DBにパネル作成（ロールはこの後ウィザードで追加）
-                const panel = await createRolePanel(
-                    guildId,
-                    channel.id,
-                    title,
-                    type
-                )
+            // DBにパネル作成（ロールはこの後ウィザードで追加）
+            const panel = await createRolePanel(
+                guildId,
+                channel.id,
+                title,
+                type
+            )
 
-                // ウィザード UI を開始
-                const wizardMsg = await interaction.reply({
-                    embeds: [buildWizardEmbed(panel.id, title, type, [])],
-                    components: buildWizardComponents(guild, []),
-                    fetchReply: true,
+            // ウィザード UI を開始
+            const wizardMsg = await interaction.reply({
+                embeds: [buildWizardEmbed(panel.id, title, type, [])],
+                components: buildWizardComponents(guild, []),
+                fetchReply: true,
+            })
+
+            await runWizard(interaction, wizardMsg as Message, panel.id, guild)
+            return
+        }
+
+        // ── edit ──────────────────────────────────────────────────────────
+        if (sub === 'edit') {
+            const panelId = interaction.options.getInteger('panel_id', true)
+            const panel = await getRolePanelById(panelId)
+
+            if (!panel || panel.guild_id !== guildId) {
+                return await interaction.reply({
+                    embeds: [
+                        createErrorEmbed('指定されたパネルが見つかりません。'),
+                    ],
+                    flags: [MessageFlags.Ephemeral],
                 })
-
-                await runWizard(
-                    interaction,
-                    wizardMsg as Message,
-                    panel.id,
-                    guild
-                )
-                return
             }
 
-            // ── edit ──────────────────────────────────────────────────────────
-            if (sub === 'edit') {
-                const panelId = interaction.options.getInteger('panel_id', true)
-                const panel = await getRolePanelById(panelId)
+            const items = await getRolePanelItems(panelId)
 
-                if (!panel || panel.guild_id !== guildId) {
-                    errorEmbed.setDescription(
-                        '指定されたパネルが見つかりません。'
-                    )
-                    return await interaction.reply({
-                        embeds: [errorEmbed],
-                        flags: [MessageFlags.Ephemeral],
-                    })
-                }
-
-                const items = await getRolePanelItems(panelId)
-
-                const wizardMsg = await interaction.reply({
-                    embeds: [
-                        buildWizardEmbed(
-                            panel.id,
-                            panel.panel_title,
-                            panel.panel_type as 'button' | 'select',
-                            items.map((it) => it.role_id)
-                        ),
-                    ],
-                    components: buildWizardComponents(
-                        guild,
+            const wizardMsg = await interaction.reply({
+                embeds: [
+                    buildWizardEmbed(
+                        panel.id,
+                        panel.panel_title,
+                        panel.panel_type as 'button' | 'select',
                         items.map((it) => it.role_id)
                     ),
-                    fetchReply: true,
-                })
+                ],
+                components: buildWizardComponents(
+                    guild,
+                    items.map((it) => it.role_id)
+                ),
+                fetchReply: true,
+            })
 
-                await runWizard(
-                    interaction,
-                    wizardMsg as Message,
-                    panelId,
-                    guild
-                )
-                return
+            await runWizard(interaction, wizardMsg as Message, panelId, guild)
+            return
+        }
+
+        // ── publish ───────────────────────────────────────────────────────
+        if (sub === 'publish') {
+            await interaction.deferReply({
+                flags: [MessageFlags.Ephemeral],
+            })
+
+            const panelId = interaction.options.getInteger('panel_id', true)
+            const panel = await getRolePanelById(panelId)
+
+            if (!panel || panel.guild_id !== guildId) {
+                return await interaction.editReply({
+                    embeds: [
+                        createErrorEmbed('指定されたパネルが見つかりません。'),
+                    ],
+                })
             }
 
-            // ── publish ───────────────────────────────────────────────────────
-            if (sub === 'publish') {
-                await interaction.deferReply({
-                    flags: [MessageFlags.Ephemeral],
-                })
+            await publishPanel(guild, panel.id)
 
-                const panelId = interaction.options.getInteger('panel_id', true)
-                const panel = await getRolePanelById(panelId)
+            const embed = createInfoEmbed()
+                .setTitle('パネルを投稿しました')
+                .setDescription(
+                    `<#${panel.channel_id}> にパネルを投稿しました。`
+                )
+            await interaction.editReply({ embeds: [embed] })
+        }
 
-                if (!panel || panel.guild_id !== guildId) {
-                    errorEmbed.setDescription(
-                        '指定されたパネルが見つかりません。'
-                    )
-                    return await interaction.editReply({ embeds: [errorEmbed] })
-                }
+        // ── list ──────────────────────────────────────────────────────────
+        if (sub === 'list') {
+            const panels = await getRolePanelsByGuild(guildId)
 
-                await publishPanel(guild, panel.id)
-
-                infoEmbed
-                    .setTitle('✅ パネルを投稿しました')
+            if (panels.length === 0) {
+                const embed = createInfoEmbed()
+                    .setTitle('ロールパネル一覧')
                     .setDescription(
-                        `<#${panel.channel_id}> にパネルを投稿しました。`
+                        'まだパネルがありません。`/rolepanel create` で作成してください。'
                     )
-                    .setFields([])
-                await interaction.editReply({ embeds: [infoEmbed] })
-            }
-
-            // ── list ──────────────────────────────────────────────────────────
-            if (sub === 'list') {
-                const panels = await getRolePanelsByGuild(guildId)
-
-                if (panels.length === 0) {
-                    infoEmbed
-                        .setTitle('📋 ロールパネル一覧')
-                        .setDescription(
-                            'まだパネルがありません。`/rolepanel create` で作成してください。'
-                        )
-                        .setFields([])
-                    return await interaction.reply({
-                        embeds: [infoEmbed],
-                        flags: [MessageFlags.Ephemeral],
-                    })
-                }
-
-                const fields = await Promise.all(
-                    panels.map(async (p) => {
-                        const items = await getRolePanelItems(p.id)
-                        return {
-                            name: `ID: ${p.id} — ${p.panel_title} (${p.panel_type === 'button' ? 'ボタン' : 'セレクト'})`,
-                            value:
-                                `チャンネル: <#${p.channel_id}>\n` +
-                                `ロール数: ${items.length}個\n` +
-                                `メッセージ: ${p.message_id ? `[リンク](https://discord.com/channels/${guildId}/${p.channel_id}/${p.message_id})` : '未投稿'}`,
-                            inline: false,
-                        }
-                    })
-                )
-
-                infoEmbed.setTitle('📋 ロールパネル一覧').setFields(fields)
-                await interaction.reply({
-                    embeds: [infoEmbed],
+                return await interaction.reply({
+                    embeds: [embed],
                     flags: [MessageFlags.Ephemeral],
                 })
             }
 
-            // ── delete ────────────────────────────────────────────────────────
-            if (sub === 'delete') {
-                await interaction.deferReply({
-                    flags: [MessageFlags.Ephemeral],
+            const fields = await Promise.all(
+                panels.map(async (p) => {
+                    const items = await getRolePanelItems(p.id)
+                    return {
+                        name: `ID: ${p.id} — ${p.panel_title} (${p.panel_type === 'button' ? 'ボタン' : 'セレクト'})`,
+                        value:
+                            `チャンネル: <#${p.channel_id}>\n` +
+                            `ロール数: ${items.length}個\n` +
+                            `メッセージ: ${p.message_id ? `[リンク](https://discord.com/channels/${guildId}/${p.channel_id}/${p.message_id})` : '未投稿'}`,
+                        inline: false,
+                    }
                 })
+            )
 
-                const panelId = interaction.options.getInteger('panel_id', true)
-                const panel = await getRolePanelById(panelId)
+            const embed = createInfoEmbed()
+                .setTitle('ロールパネル一覧')
+                .setFields(fields)
+            await interaction.reply({
+                embeds: [embed],
+                flags: [MessageFlags.Ephemeral],
+            })
+        }
 
-                if (!panel || panel.guild_id !== guildId) {
-                    errorEmbed.setDescription(
-                        '指定されたパネルが見つかりません。'
-                    )
-                    return await interaction.editReply({ embeds: [errorEmbed] })
-                }
+        // ── delete ────────────────────────────────────────────────────────
+        if (sub === 'delete') {
+            await interaction.deferReply({
+                flags: [MessageFlags.Ephemeral],
+            })
 
-                // 投稿済みメッセージを削除
-                if (panel.message_id) {
-                    const ch = guild.channels.cache.get(panel.channel_id) as
-                        | TextChannel
-                        | undefined
-                    const msg = await ch?.messages
-                        .fetch(panel.message_id)
-                        .catch(() => null)
-                    await msg?.delete().catch(() => null)
-                }
+            const panelId = interaction.options.getInteger('panel_id', true)
+            const panel = await getRolePanelById(panelId)
 
-                await deleteRolePanel(panelId)
-
-                infoEmbed
-                    .setTitle('✅ パネルを削除しました')
-                    .setDescription(`パネル ID \`${panelId}\` を削除しました。`)
-                    .setFields([])
-                await interaction.editReply({ embeds: [infoEmbed] })
-            }
-        } catch (error: unknown) {
-            console.error(error)
-            const message =
-                error instanceof Error ? error.message : '不明なエラー'
-            errorEmbed.setDescription(message)
-            if (interaction.deferred || interaction.replied) {
-                await interaction.editReply({ embeds: [errorEmbed] })
-            } else {
-                await interaction.reply({
-                    embeds: [errorEmbed],
-                    flags: [MessageFlags.Ephemeral],
+            if (!panel || panel.guild_id !== guildId) {
+                return await interaction.editReply({
+                    embeds: [
+                        createErrorEmbed('指定されたパネルが見つかりません。'),
+                    ],
                 })
             }
+
+            // 投稿済みメッセージを削除
+            if (panel.message_id) {
+                const ch = guild.channels.cache.get(panel.channel_id) as
+                    | TextChannel
+                    | undefined
+                const msg = await ch?.messages
+                    .fetch(panel.message_id)
+                    .catch(() => null)
+                await msg?.delete().catch(() => null)
+            }
+
+            await deleteRolePanel(panelId)
+
+            const embed = createInfoEmbed()
+                .setTitle('パネルを削除しました')
+                .setDescription(`パネル ID \`${panelId}\` を削除しました。`)
+            await interaction.editReply({ embeds: [embed] })
         }
     },
 }
@@ -331,9 +310,9 @@ function buildWizardEmbed(
 ): EmbedBuilder {
     return new EmbedBuilder()
         .setColor(0x5865f2)
-        .setTitle(`📋 ロールパネルウィザード — ${title}`)
+        .setTitle(`ロールパネルウィザード — ${title}`)
         .setDescription(
-            `形式: **${type === 'button' ? '🔘 ボタン' : '📋 セレクトメニュー'}**\n` +
+            `形式: **${type === 'button' ? '🔘 ボタン' : 'セレクトメニュー'}**\n` +
                 `パネルID: \`${panelId}\`\n\n` +
                 (currentRoleIds.length > 0
                     ? `現在のロール (${currentRoleIds.length}個):\n${currentRoleIds.map((id) => `• <@&${id}>`).join('\n')}`
@@ -569,7 +548,7 @@ async function runWizard(
                         embeds: [
                             new EmbedBuilder()
                                 .setColor(Colors.Green)
-                                .setTitle('✅ ロールパネルを投稿しました')
+                                .setTitle('ロールパネルを投稿しました')
                                 .setDescription(
                                     panel
                                         ? `<#${panel.channel_id}> に投稿しました。`

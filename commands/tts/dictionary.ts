@@ -5,7 +5,7 @@ import {
     EmbedBuilder,
 } from 'discord.js'
 import { VoicevoxClient } from '../../lib/voicevox'
-import { errorEmbed, infoEmbed, successEmbed } from '../../lib/embed'
+import { createErrorEmbed, createInfoEmbed, createSuccessEmbed } from '../../lib/embed'
 
 const wordTypes = {
     PROPER_NOUN: '固有名詞',
@@ -154,8 +154,8 @@ export default {
                     priority,
                 })
 
-                successEmbed.setDescription('単語を追加しました。')
-                successEmbed.addFields(
+                const embed = createSuccessEmbed().setDescription('単語を追加しました。')
+                embed.addFields(
                     {
                         name: 'UUID',
                         value: uuid.toString(),
@@ -189,7 +189,7 @@ export default {
                         inline: true,
                     }
                 )
-                await interaction.editReply({ embeds: [successEmbed] })
+                await interaction.editReply({ embeds: [embed] })
             } else if (sub === 'list') {
                 const dict = await VoicevoxClient.getUserDict()
                 const entries = Object.entries(dict)
@@ -200,8 +200,6 @@ export default {
                     })
                 }
 
-                infoEmbed.setTitle('VOICEVOX ユーザー辞書')
-
                 const list = entries
                     .map(
                         ([uuid, word]: [string, any]) =>
@@ -209,8 +207,10 @@ export default {
                     )
                     .join('\n\n')
 
-                infoEmbed.setDescription(list.substring(0, 4096))
-                await interaction.editReply({ embeds: [infoEmbed] })
+                const embed = createInfoEmbed()
+                    .setTitle('VOICEVOX ユーザー辞書')
+                    .setDescription(list.substring(0, 4096))
+                await interaction.editReply({ embeds: [embed] })
             } else if (sub === 'update') {
                 const uuid = interaction.options.getString('uuid', true)
                 const surface = interaction.options.getString('surface')
@@ -229,11 +229,8 @@ export default {
                     !word_type &&
                     priority === undefined
                 ) {
-                    errorEmbed.setDescription(
-                        '更新するフィールドを少なくとも1つ指定してください。'
-                    )
                     return await interaction.editReply({
-                        embeds: [errorEmbed],
+                        embeds: [createErrorEmbed('更新するフィールドを少なくとも1つ指定してください。')],
                     })
                 }
 
@@ -241,11 +238,8 @@ export default {
                 const dict = await VoicevoxClient.getUserDict()
                 const existing = dict[uuid]
                 if (!existing) {
-                    errorEmbed.setDescription(
-                        `UUID \`${uuid}\` の単語が見つかりません。`
-                    )
                     return await interaction.editReply({
-                        embeds: [errorEmbed],
+                        embeds: [createErrorEmbed(`UUID \`${uuid}\` の単語が見つかりません。`)],
                     })
                 }
 
@@ -260,9 +254,9 @@ export default {
 
                 await VoicevoxClient.updateUserDictWord(uuid, merged)
 
-                successEmbed.setFields([])
-                successEmbed.setDescription('単語を更新しました。')
-                successEmbed.addFields(
+                const embed = createSuccessEmbed()
+                    .setDescription('単語を更新しました。')
+                embed.addFields(
                     {
                         name: 'UUID',
                         value: uuid,
@@ -297,19 +291,15 @@ export default {
                         inline: true,
                     }
                 )
-                await interaction.editReply({ embeds: [successEmbed] })
+                await interaction.editReply({ embeds: [embed] })
             } else if (sub === 'delete') {
                 const uuid = interaction.options.getString('uuid', true)
                 await VoicevoxClient.deleteUserDictWord(uuid)
-                successEmbed.setDescription(`単語を削除しました。\n\`${uuid}\``)
-                await interaction.editReply({ embeds: [successEmbed] })
+                await interaction.editReply({ embeds: [createSuccessEmbed().setDescription(`単語を削除しました。\n\`${uuid}\``)] })
             }
         } catch (error: any) {
             console.error(error)
-            errorEmbed.setDescription(`エラーが発生しました: ${error.message}`)
-            await interaction.editReply({
-                embeds: [errorEmbed],
-            })
+            await interaction.editReply({ embeds: [createErrorEmbed(`エラーが発生しました: ${error.message}`)] })
         }
     },
 }

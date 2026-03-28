@@ -6,7 +6,7 @@ import {
 } from 'discord.js'
 import { joinVoiceChannel, getVoiceConnection } from '@discordjs/voice'
 import { setTtsSettings, deleteTtsSettings } from '../../lib/db'
-import { errorEmbed, successEmbed } from '../../lib/embed'
+import { createErrorEmbed, createSuccessEmbed } from '../../lib/embed'
 
 export default {
     data: new SlashCommandBuilder()
@@ -35,11 +35,12 @@ export default {
         if (sub === 'join') {
             const voiceChannel = member.voice.channel
             if (!voiceChannel) {
-                errorEmbed.setDescription(
-                    '先にボイスチャンネルに参加してください。'
-                )
                 return await interaction.reply({
-                    embeds: [errorEmbed],
+                    embeds: [
+                        createErrorEmbed(
+                            '先にボイスチャンネルに参加してください。'
+                        ),
+                    ],
                     flags: [MessageFlags.Ephemeral],
                 })
             }
@@ -57,15 +58,14 @@ export default {
                     voiceChannel.id
                 )
 
-                successEmbed.setDescription(
+                const embed = createSuccessEmbed().setDescription(
                     `<#${interaction.channelId}>でのメッセージを\n<#${voiceChannel.id}>で読み上げます`
                 )
-                await interaction.reply({ embeds: [successEmbed] })
+                await interaction.reply({ embeds: [embed] })
             } catch (error: any) {
                 console.error(error)
-                errorEmbed.setDescription('接続に失敗しました。')
                 await interaction.reply({
-                    embeds: [errorEmbed],
+                    embeds: [createErrorEmbed('接続に失敗しました。')],
                     flags: [MessageFlags.Ephemeral],
                 })
             }
@@ -77,8 +77,13 @@ export default {
                 connection.destroy()
             }
             await deleteTtsSettings(guildId)
-            successEmbed.setDescription('ボイスチャンネルから退出しました。')
-            await interaction.reply({ embeds: [successEmbed] })
+            await interaction.reply({
+                embeds: [
+                    createSuccessEmbed().setDescription(
+                        'ボイスチャンネルから退出しました。'
+                    ),
+                ],
+            })
         }
     },
 }

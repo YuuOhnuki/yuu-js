@@ -13,11 +13,12 @@ import {
     GuildAuditLogsEntry,
     AuditLogEvent,
     EmbedBuilder,
+    type TextChannel,
     Colors,
     Guild,
-    type TextChannel,
 } from 'discord.js'
 import { getGuildSettings } from '../lib/db'
+import { createInfoEmbed } from '../lib/embed'
 
 // ─── アクションマッピング ─────────────────────────────────────────────────────
 
@@ -263,10 +264,7 @@ export default {
             if (!meta) return
 
             // ── Embed 構築 ──────────────────────────────────────────────────
-            const embed = new EmbedBuilder()
-                .setColor(meta.color)
-                .setTitle(`${meta.emoji} ${meta.label}`)
-                .setTimestamp(entry.createdAt)
+            const embed = createInfoEmbed()
 
             // 実行者
             const executor = entry.executor

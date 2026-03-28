@@ -5,7 +5,7 @@ import {
     ChatInputCommandInteraction,
     MessageFlags,
 } from 'discord.js'
-import { errorEmbed, successEmbed } from '../../lib/embed'
+import { createErrorEmbed, createSuccessEmbed } from '../../lib/embed'
 
 export default {
     data: new SlashCommandBuilder()
@@ -49,16 +49,15 @@ export default {
 
             const duration = interaction.options.getInteger('duration')!
             await targetMember.timeout(duration * 60 * 1000, reason)
-            successEmbed.setDescription(
+            const embed = createSuccessEmbed().setDescription(
                 `${targetUser.tag} を ${duration} 分間停止させました。\n理由: ${reason}`
             )
 
-            await interaction.reply({ embeds: [successEmbed] })
+            await interaction.reply({ embeds: [embed] })
         } catch (error: any) {
-            errorEmbed.setDescription(error.message)
-            await interaction.reply({
-                embeds: [errorEmbed],
-                flags: [MessageFlags.Ephemeral],
+            console.error(error)
+            await interaction.editReply({
+                embeds: [createErrorEmbed(error.message)],
             })
         }
     },

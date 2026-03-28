@@ -5,7 +5,7 @@ import {
 } from 'discord.js'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { infoEmbed } from '../../lib/embed'
+import { createInfoEmbed } from '../../lib/embed'
 
 export default {
     data: new SlashCommandBuilder()
@@ -38,7 +38,7 @@ export default {
             '• バグ修正とパフォーマンス改善',
         ]
 
-        infoEmbed
+        const embed = createInfoEmbed()
             .setTitle(`${interaction.client.user.displayName} バージョン`)
             .addFields(
                 { name: 'バージョン', value: `v${version}`, inline: true },
@@ -47,6 +47,6 @@ export default {
             )
             .setTimestamp()
 
-        await interaction.reply({ embeds: [infoEmbed] })
+        await interaction.reply({ embeds: [embed] })
     },
 }

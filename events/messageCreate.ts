@@ -1,5 +1,5 @@
 import { Events, Message, TextChannel } from 'discord.js'
-import { infoEmbed } from '../lib/embed'
+import { createInfoEmbed } from '../lib/embed'
 import {
     addXp,
     recordMessage,
@@ -124,7 +124,7 @@ export default {
 
             if (!targetChannel?.isTextBased()) return
 
-            infoEmbed
+            const embed = createInfoEmbed()
                 .setTitle('🎉 レベルアップ！')
                 .setDescription(
                     `<@${userId}> さんが **Lv.${xpResult.newLevel}** になりました！`
@@ -144,7 +144,7 @@ export default {
                 ])
 
             await targetChannel
-                .send({ embeds: [infoEmbed] })
+                .send({ embeds: [embed] })
                 .catch(console.error)
         }
     },

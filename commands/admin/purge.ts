@@ -4,7 +4,7 @@ import {
     ChatInputCommandInteraction,
     MessageFlags,
 } from 'discord.js'
-import { errorEmbed, successEmbed } from '../../lib/embed'
+import { createSuccessEmbed } from '../../lib/embed'
 
 export default {
     data: new SlashCommandBuilder()
@@ -21,32 +21,21 @@ export default {
         ),
 
     async execute(interaction: ChatInputCommandInteraction) {
-        try {
-            const amount = interaction.options.getInteger('count')!
+        const amount = interaction.options.getInteger('count')!
 
-            if (!interaction.channel || interaction.channel.isDMBased()) {
-                throw new Error('サーバー内のチャンネルで実行してください。')
-            }
+        if (!interaction.channel || interaction.channel.isDMBased()) {
+            throw new Error('サーバー内のチャンネルで実行してください。')
+        }
 
-            if ('bulkDelete' in interaction.channel) {
-                const deleted = await interaction.channel.bulkDelete(
-                    amount,
-                    true
-                )
+        if ('bulkDelete' in interaction.channel) {
+            const deleted = await interaction.channel.bulkDelete(amount, true)
 
-                successEmbed.setDescription(
-                    `${deleted.size} 件のメッセージを削除しました。`
-                )
+            const embed = createSuccessEmbed().setDescription(
+                `${deleted.size} 件のメッセージを削除しました。`
+            )
 
-                await interaction.reply({
-                    embeds: [successEmbed],
-                    flags: [MessageFlags.Ephemeral],
-                })
-            }
-        } catch (error: any) {
-            errorEmbed.setDescription(error.message)
             await interaction.reply({
-                embeds: [errorEmbed],
+                embeds: [embed],
                 flags: [MessageFlags.Ephemeral],
             })
         }

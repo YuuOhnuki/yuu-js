@@ -3,7 +3,7 @@ import {
     ChatInputCommandInteraction,
     MessageFlags,
 } from 'discord.js'
-import { errorEmbed, infoEmbed } from '../../lib/embed'
+import { createErrorEmbed, createInfoEmbed } from '../../lib/embed'
 import {
     getUserEconomy,
     claimDaily,
@@ -64,7 +64,7 @@ export default {
 
                 const dailyAvailable = data.last_daily_date !== getToday()
 
-                infoEmbed
+                const embed = createInfoEmbed()
                     .setTitle(`${emoji} ${user.username} の残高`)
                     .setThumbnail(user.displayAvatarURL())
                     .setFields([
@@ -87,7 +87,7 @@ export default {
                         },
                     ])
 
-                return await interaction.reply({ embeds: [infoEmbed] })
+                return await interaction.reply({ embeds: [embed] })
             }
 
             // ─── daily ───────────────────────────────────────────────────────
@@ -95,16 +95,13 @@ export default {
                 const result = await claimDaily(interaction.user.id, guildId)
 
                 if (!result.success) {
-                    errorEmbed.setDescription(
-                        `デイリーはすでに受け取り済みです。\n次回受け取り可能: **${result.nextAvailableDate}**`
-                    )
                     return await interaction.reply({
-                        embeds: [errorEmbed],
+                        embeds: [createErrorEmbed(`デイリーはすでに受け取り済みです。\n次回受け取り可能: **${result.nextAvailableDate}**`)],
                         flags: [MessageFlags.Ephemeral],
                     })
                 }
 
-                infoEmbed.setTitle('🎁 デイリーボーナス').setFields([
+                const embed = createInfoEmbed().setTitle('🎁 デイリーボーナス').setFields([
                     {
                         name: '獲得',
                         value: `${emoji} +**${result.amount.toLocaleString()}** ${currencyName}`,
@@ -122,7 +119,7 @@ export default {
                     },
                 ])
 
-                return await interaction.reply({ embeds: [infoEmbed] })
+                return await interaction.reply({ embeds: [embed] })
             }
 
             // ─── pay ─────────────────────────────────────────────────────────
@@ -139,19 +136,16 @@ export default {
 
                 if (!result.success) {
                     if (result.error === 'self_transfer') {
-                        errorEmbed.setDescription('自分自身には送れません。')
+                        return await interaction.reply({ embeds: [createErrorEmbed('自分自身には送れません。')], flags: [MessageFlags.Ephemeral] })
                     } else {
-                        errorEmbed.setDescription(
-                            `残高が不足しています。\n現在の残高: ${emoji} **${result.senderBalance?.toLocaleString()}** ${currencyName}`
-                        )
+                        return await interaction.reply({
+                            embeds: [createErrorEmbed(`残高が不足しています。\n現在の残高: ${emoji} **${result.senderBalance?.toLocaleString()}** ${currencyName}`)],
+                            flags: [MessageFlags.Ephemeral],
+                        })
                     }
-                    return await interaction.reply({
-                        embeds: [errorEmbed],
-                        flags: [MessageFlags.Ephemeral],
-                    })
                 }
 
-                infoEmbed.setTitle('💸 送金完了').setFields([
+                const embed = createInfoEmbed().setTitle('💸 送金完了').setFields([
                     { name: '送り先', value: `${target}`, inline: true },
                     {
                         name: '金額',
@@ -170,13 +164,12 @@ export default {
                     },
                 ])
 
-                return await interaction.reply({ embeds: [infoEmbed] })
+                return await interaction.reply({ embeds: [embed] })
             }
         } catch (error: any) {
             console.error(error)
-            errorEmbed.setDescription(error.message)
             await interaction.reply({
-                embeds: [errorEmbed],
+                embeds: [createErrorEmbed(error.message)],
                 flags: [MessageFlags.Ephemeral],
             })
         }

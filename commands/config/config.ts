@@ -5,7 +5,11 @@ import {
     PermissionFlagsBits,
     ChannelType,
 } from 'discord.js'
-import { errorEmbed, infoEmbed } from '../../lib/embed'
+import {
+    createErrorEmbed,
+    createInfoEmbed,
+    createSuccessEmbed,
+} from '../../lib/embed'
 import {
     getGuildSettings,
     updateGuildSettings,
@@ -127,9 +131,9 @@ export default {
         ),
 
     async execute(interaction: ChatInputCommandInteraction) {
-        try {
             const sub = interaction.options.getSubcommand()
             const guildId = interaction.guildId!
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral })
 
             // ─── show ─────────────────────────────────────────────────────────
             if (sub === 'show') {
@@ -139,63 +143,63 @@ export default {
                 const fmt = (id: string | null, type: 'role' | 'channel') =>
                     id ? (type === 'role' ? `<@&${id}>` : `<#${id}>`) : '未設定'
 
-                infoEmbed
+                const embed = createInfoEmbed()
                     .setTitle(`⚙️ ${interaction.guild?.name} の設定`)
                     .setFields([
                         {
-                            name: '🎫 サポートロール',
+                            name: 'サポートロール',
                             value: fmt(settings.support_role_id, 'role'),
                             inline: true,
                         },
                         {
-                            name: '🔨 モデレーターロール',
+                            name: 'モデレーターロール',
                             value: fmt(settings.moderator_role_id, 'role'),
                             inline: true,
                         },
                         {
-                            name: '📋 ログチャンネル',
+                            name: 'ログチャンネル',
                             value: fmt(settings.log_channel_id, 'channel'),
                             inline: true,
                         },
                         {
-                            name: '👋 ウェルカムチャンネル',
+                            name: 'ウェルカムチャンネル',
                             value: fmt(settings.welcome_channel_id, 'channel'),
                             inline: true,
                         },
                         {
-                            name: '📈 レベルアップ通知',
+                            name: 'レベルアップ通知',
                             value: settings.levelup_notification
-                                ? `✅ 有効 ${settings.levelup_channel_id ? fmt(settings.levelup_channel_id, 'channel') : '（発言チャンネル）'}`
-                                : '❌ 無効',
+                                ? `有効 ${settings.levelup_channel_id ? fmt(settings.levelup_channel_id, 'channel') : '（発言チャンネル）'}`
+                                : '無効',
                             inline: true,
                         },
                         {
-                            name: '🪙 通貨',
+                            name: '通貨',
                             value: `${settings.currency_emoji} ${settings.currency_name}`,
                             inline: true,
                         },
                         {
-                            name: '🎁 デイリーボーナス',
+                            name: 'デイリーボーナス',
                             value: `${settings.currency_emoji} ${settings.daily_amount}`,
                             inline: true,
                         },
                         {
-                            name: '✨ XP倍率',
+                            name: 'XP倍率',
                             value: `×${settings.xp_multiplier}`,
                             inline: true,
                         },
                         {
-                            name: '💬 最小文字数',
+                            name: '最小文字数',
                             value: `${settings.min_message_length} 文字`,
                             inline: true,
                         },
                         {
-                            name: '⏱️ メッセージクールダウン',
+                            name: 'メッセージクールダウン',
                             value: `${settings.message_cooldown_seconds} 秒`,
                             inline: true,
                         },
                         {
-                            name: `🚫 XPブラックリスト (${blacklist.length}件)`,
+                            name: `XPブラックリスト (${blacklist.length}件)`,
                             value:
                                 blacklist.length > 0
                                     ? blacklist
@@ -206,9 +210,8 @@ export default {
                         },
                     ])
 
-                return await interaction.reply({
-                    embeds: [infoEmbed],
-                    flags: [MessageFlags.Ephemeral],
+                return await interaction.editReply({
+                    embeds: [embed],
                 })
             }
 
@@ -260,19 +263,19 @@ export default {
                 if (cooldown !== null) patch.message_cooldown_seconds = cooldown
 
                 if (Object.keys(patch).length === 0) {
-                    errorEmbed.setDescription(
-                        '変更する設定を少なくとも1つ指定してください。'
-                    )
-                    return await interaction.reply({
-                        embeds: [errorEmbed],
-                        flags: [MessageFlags.Ephemeral],
+                    return await interaction.editReply({
+                        embeds: [
+                            createErrorEmbed(
+                                '変更する設定を少なくとも1つ指定してください。'
+                            ),
+                        ],
                     })
                 }
 
                 await updateGuildSettings(guildId, patch)
 
-                infoEmbed
-                    .setTitle('✅ 設定を更新しました')
+                const embed = createSuccessEmbed()
+                    .setTitle('設定を更新しました')
                     .setDescription(
                         Object.keys(patch)
                             .map((k) => `• \`${k}\` を更新`)
@@ -280,9 +283,8 @@ export default {
                     )
                     .setFields([])
 
-                return await interaction.reply({
-                    embeds: [infoEmbed],
-                    flags: [MessageFlags.Ephemeral],
+                return await interaction.editReply({
+                    embeds: [embed],
                 })
             }
 
@@ -293,25 +295,23 @@ export default {
                 const blacklist = await getXpBlacklistChannels(guildId)
 
                 if (action === 'list') {
-                    infoEmbed
+                    const embed = createInfoEmbed()
                         .setTitle('🚫 XPブラックリスト')
                         .setDescription(
                             blacklist.length > 0
                                 ? blacklist.map((id) => `<#${id}>`).join('\n')
                                 : 'ブラックリストは空です。'
                         )
-                        .setFields([])
-                    return await interaction.reply({
-                        embeds: [infoEmbed],
-                        flags: [MessageFlags.Ephemeral],
+                    return await interaction.editReply({
+                        embeds: [embed],
                     })
                 }
 
                 if (!channel) {
-                    errorEmbed.setDescription('チャンネルを指定してください。')
-                    return await interaction.reply({
-                        embeds: [errorEmbed],
-                        flags: [MessageFlags.Ephemeral],
+                    return await interaction.editReply({
+                        embeds: [
+                            createErrorEmbed('チャンネルを指定してください。'),
+                        ],
                     })
                 }
 
@@ -320,35 +320,22 @@ export default {
                         blacklist.push(channel.id)
                         await setXpBlacklistChannels(guildId, blacklist)
                     }
-                    infoEmbed
+                    const embed = createInfoEmbed()
                         .setTitle('✅ ブラックリストに追加')
                         .setDescription(
                             `<#${channel.id}> でのXP取得を無効にしました。`
                         )
-                        .setFields([])
+                    return await interaction.editReply({ embeds: [embed] })
                 } else {
                     const updated = blacklist.filter((id) => id !== channel.id)
                     await setXpBlacklistChannels(guildId, updated)
-                    infoEmbed
+                    const embed = createInfoEmbed()
                         .setTitle('✅ ブラックリストから削除')
                         .setDescription(
                             `<#${channel.id}> でのXP取得を再度有効にしました。`
                         )
-                        .setFields([])
+                    return await interaction.editReply({ embeds: [embed] })
                 }
-
-                return await interaction.reply({
-                    embeds: [infoEmbed],
-                    flags: [MessageFlags.Ephemeral],
-                })
             }
-        } catch (error: any) {
-            console.error(error)
-            errorEmbed.setDescription(error.message)
-            await interaction.reply({
-                embeds: [errorEmbed],
-                flags: [MessageFlags.Ephemeral],
-            })
-        }
     },
 }

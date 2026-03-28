@@ -2,6 +2,8 @@ import { Events, MessageFlags, EmbedBuilder } from 'discord.js'
 import type { ExtendedClient } from '../index.ts'
 import { handleTicketInteraction } from '../lib/handlers/ticketHandler'
 import { handleRolePanelInteraction } from '../lib/handlers/rolePanelHandler'
+import { handleInteractionError } from '../lib/errorHandler'
+import { createInfoEmbed } from '../lib/embed'
 
 export default {
     name: Events.InteractionCreate,
@@ -17,15 +19,7 @@ export default {
             try {
                 await command.execute(interaction)
             } catch (err) {
-                console.error(err)
-                const payload = {
-                    content: 'エラーが発生しました。',
-                }
-                if (interaction.replied || interaction.deferred) {
-                    await interaction.followUp(payload)
-                } else {
-                    await interaction.reply(payload)
-                }
+                await handleInteractionError(interaction, err)
             }
             return
         }
@@ -52,7 +46,7 @@ export default {
             const value = interaction.values[0]!
             const command = client.slashCommands.get(value)
 
-            const helpEmbed = new EmbedBuilder().setColor('#89c3eb')
+            const helpEmbed = createInfoEmbed()
 
             if (command?.data) {
                 const json = command.data.toJSON() as {
