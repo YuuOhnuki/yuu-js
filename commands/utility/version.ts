@@ -13,6 +13,8 @@ export default {
         .setDescription('ボットのバージョン情報を表示します'),
 
     async execute(interaction: ChatInputCommandInteraction) {
+        await interaction.deferReply()
+
         // package.json からバージョンを読み取る
         const packageJson = JSON.parse(
             readFileSync(join(process.cwd(), 'package.json'), 'utf-8')
@@ -47,6 +49,6 @@ export default {
             )
             .setTimestamp()
 
-        await interaction.reply({ embeds: [embed] })
+        await interaction.editReply({ embeds: [embed] })
     },
 }

@@ -50,6 +50,7 @@ export default {
 
     async execute(interaction: ChatInputCommandInteraction) {
         try {
+            await interaction.deferReply({ flags: [MessageFlags.Ephemeral] })
             const sub = interaction.options.getSubcommand()
             const guildId = interaction.guildId!
             const settings = await getGuildSettings(guildId)
@@ -65,7 +66,7 @@ export default {
                 const dailyAvailable = data.last_daily_date !== getToday()
 
                 const embed = createInfoEmbed()
-                    .setTitle(`${emoji} ${user.username} の残高`)
+                    .setTitle(`${user.username} の残高`)
                     .setThumbnail(user.displayAvatarURL())
                     .setFields([
                         {
@@ -81,13 +82,13 @@ export default {
                         {
                             name: 'デイリー',
                             value: dailyAvailable
-                                ? '✅ 受け取れます！ `/economy daily`'
-                                : '⏳ 受け取り済み（また明日）',
+                                ? '受け取れます `/economy daily`'
+                                : '受け取り済み（また明日）',
                             inline: false,
                         },
                     ])
 
-                return await interaction.reply({ embeds: [embed] })
+                return await interaction.editReply({ embeds: [embed] })
             }
 
             // ─── daily ───────────────────────────────────────────────────────
@@ -95,31 +96,36 @@ export default {
                 const result = await claimDaily(interaction.user.id, guildId)
 
                 if (!result.success) {
-                    return await interaction.reply({
-                        embeds: [createErrorEmbed(`デイリーはすでに受け取り済みです。\n次回受け取り可能: **${result.nextAvailableDate}**`)],
-                        flags: [MessageFlags.Ephemeral],
+                    return await interaction.editReply({
+                        embeds: [
+                            createErrorEmbed(
+                                `デイリーはすでに受け取り済みです。\n次回受け取り可能: **${result.nextAvailableDate}**`
+                            ),
+                        ],
                     })
                 }
 
-                const embed = createInfoEmbed().setTitle('🎁 デイリーボーナス').setFields([
-                    {
-                        name: '獲得',
-                        value: `${emoji} +**${result.amount.toLocaleString()}** ${currencyName}`,
-                        inline: true,
-                    },
-                    {
-                        name: '現在の残高',
-                        value: `${emoji} **${result.newBalance.toLocaleString()}** ${currencyName}`,
-                        inline: true,
-                    },
-                    {
-                        name: '次回',
-                        value: '明日また受け取れます 🌅',
-                        inline: false,
-                    },
-                ])
+                const embed = createInfoEmbed()
+                    .setTitle('🎁 デイリーボーナス')
+                    .setFields([
+                        {
+                            name: '獲得',
+                            value: `${emoji} +**${result.amount.toLocaleString()}** ${currencyName}`,
+                            inline: true,
+                        },
+                        {
+                            name: '現在の残高',
+                            value: `${emoji} **${result.newBalance.toLocaleString()}** ${currencyName}`,
+                            inline: true,
+                        },
+                        {
+                            name: '次回',
+                            value: '明日また受け取れます',
+                            inline: false,
+                        },
+                    ])
 
-                return await interaction.reply({ embeds: [embed] })
+                return await interaction.editReply({ embeds: [embed] })
             }
 
             // ─── pay ─────────────────────────────────────────────────────────
@@ -136,41 +142,49 @@ export default {
 
                 if (!result.success) {
                     if (result.error === 'self_transfer') {
-                        return await interaction.reply({ embeds: [createErrorEmbed('自分自身には送れません。')], flags: [MessageFlags.Ephemeral] })
+                        return await interaction.editReply({
+                            embeds: [
+                                createErrorEmbed('自分自身には送れません。'),
+                            ],
+                        })
                     } else {
-                        return await interaction.reply({
-                            embeds: [createErrorEmbed(`残高が不足しています。\n現在の残高: ${emoji} **${result.senderBalance?.toLocaleString()}** ${currencyName}`)],
-                            flags: [MessageFlags.Ephemeral],
+                        return await interaction.editReply({
+                            embeds: [
+                                createErrorEmbed(
+                                    `残高が不足しています。\n現在の残高: ${emoji} **${result.senderBalance?.toLocaleString()}** ${currencyName}`
+                                ),
+                            ],
                         })
                     }
                 }
 
-                const embed = createInfoEmbed().setTitle('💸 送金完了').setFields([
-                    { name: '送り先', value: `${target}`, inline: true },
-                    {
-                        name: '金額',
-                        value: `${emoji} **${amount.toLocaleString()}** ${currencyName}`,
-                        inline: true,
-                    },
-                    {
-                        name: 'あなたの残高',
-                        value: `${emoji} **${result.senderBalance?.toLocaleString()}** ${currencyName}`,
-                        inline: true,
-                    },
-                    {
-                        name: `${target.username} の残高`,
-                        value: `${emoji} **${result.receiverBalance?.toLocaleString()}** ${currencyName}`,
-                        inline: true,
-                    },
-                ])
+                const embed = createInfoEmbed()
+                    .setTitle('送金完了')
+                    .setFields([
+                        { name: '送り先', value: `${target}`, inline: true },
+                        {
+                            name: '金額',
+                            value: `${emoji} **${amount.toLocaleString()}** ${currencyName}`,
+                            inline: true,
+                        },
+                        {
+                            name: 'あなたの残高',
+                            value: `${emoji} **${result.senderBalance?.toLocaleString()}** ${currencyName}`,
+                            inline: true,
+                        },
+                        {
+                            name: `${target.username} の残高`,
+                            value: `${emoji} **${result.receiverBalance?.toLocaleString()}** ${currencyName}`,
+                            inline: true,
+                        },
+                    ])
 
-                return await interaction.reply({ embeds: [embed] })
+                return await interaction.editReply({ embeds: [embed] })
             }
         } catch (error: any) {
             console.error(error)
-            await interaction.reply({
+            await interaction.editReply({
                 embeds: [createErrorEmbed(error.message)],
-                flags: [MessageFlags.Ephemeral],
             })
         }
     },
