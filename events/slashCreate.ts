@@ -2,7 +2,7 @@ import { Events, MessageFlags, EmbedBuilder } from 'discord.js'
 import type { ExtendedClient } from '../index.ts'
 import { handleTicketInteraction } from '../lib/handlers/ticketHandler'
 import { handleRolePanelInteraction } from '../lib/handlers/rolePanelHandler'
-import { handleInteractionError } from '../lib/errorHandler'
+import { handleInteractionError } from '../lib/handlers/errorHandler.ts'
 import { createInfoEmbed } from '../lib/embed'
 
 export default {

@@ -28,6 +28,7 @@ import {
     type RolePanelRow,
     type RolePanelItemRow,
 } from '../db'
+import { getErrorMessage } from './errorHandler.ts'
 
 // ─── パネルメッセージ構築（rolepanel.ts からも呼ばれる） ──────────────────────
 
@@ -141,6 +142,37 @@ export async function handleRolePanelInteraction(
         }
 
         try {
+            // ボットがこのロールを管理できるか確認
+            if (!guild.members.me?.permissions.has('ManageRoles')) {
+                await i.reply({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setColor(Colors.Red)
+                            .setDescription(
+                                '❌ Botが「ロールを管理」の権限を持っていません。\nサーバー管理者に連絡してください。'
+                            ),
+                    ],
+                    flags: [MessageFlags.Ephemeral],
+                })
+                return
+            }
+
+            // ボットがロールより高い位置にあるか確認
+            const botHighestRole = guild.members.me?.roles.highest
+            if (botHighestRole && role.position >= botHighestRole.position) {
+                await i.reply({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setColor(Colors.Red)
+                            .setDescription(
+                                `❌ Botのロール位置が低いため、**${role.name}** を管理できません。\nサーバー管理者がBotのロール位置を上げてください。`
+                            ),
+                    ],
+                    flags: [MessageFlags.Ephemeral],
+                })
+                return
+            }
+
             const hasRole = guildMember.roles.cache.has(roleId)
             if (hasRole) {
                 await guildMember.roles.remove(role)
@@ -173,9 +205,7 @@ export async function handleRolePanelInteraction(
                 embeds: [
                     new EmbedBuilder()
                         .setColor(Colors.Red)
-                        .setDescription(
-                            '❌ ロールの変更に失敗しました。Botの権限を確認してください。'
-                        ),
+                        .setDescription(getErrorMessage(err, 'ロール管理')),
                 ],
                 flags: [MessageFlags.Ephemeral],
             })
@@ -204,6 +234,20 @@ export async function handleRolePanelInteraction(
         await i.deferReply({ flags: [MessageFlags.Ephemeral] })
 
         try {
+            // ボットがロール管理権限を持っているか確認
+            if (!guild.members.me?.permissions.has('ManageRoles')) {
+                await i.editReply({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setColor(Colors.Red)
+                            .setDescription(
+                                '❌ Botが「ロールを管理」の権限を持っていません。\nサーバー管理者に連絡してください。'
+                            ),
+                    ],
+                })
+                return
+            }
+
             const items = await getRolePanelItems(panelId)
             const panelRoleIds = new Set(items.map((it) => it.role_id))
             const selectedRoleIds = new Set(i.values)
@@ -215,6 +259,13 @@ export async function handleRolePanelInteraction(
             for (const item of items) {
                 const role = guild.roles.cache.get(item.role_id)
                 if (!role) continue
+
+                // ボットがロールより高い位置にあるか確認
+                const botHighestRole = guild.members.me?.roles.highest
+                if (botHighestRole && role.position >= botHighestRole.position) {
+                    errors.push(role.name)
+                    continue
+                }
 
                 const shouldHave = selectedRoleIds.has(item.role_id)
                 const hasNow = guildMember.roles.cache.has(item.role_id)
@@ -248,7 +299,7 @@ export async function handleRolePanelInteraction(
                 )
             if (errors.length > 0)
                 lines.push(
-                    `❌ **失敗:** ${errors.map((n) => `\`${n}\``).join(', ')}`
+                    `❌ **失敗:** ${errors.map((n) => `\`${n}\``).join(', ')}\n_Botの権限が不足しているか、ロール位置が低い可能性があります。_`
                 )
             if (lines.length === 0) lines.push('変更なし')
 
@@ -268,7 +319,7 @@ export async function handleRolePanelInteraction(
                 embeds: [
                     new EmbedBuilder()
                         .setColor(Colors.Red)
-                        .setDescription('❌ ロールの変更に失敗しました。'),
+                        .setDescription(getErrorMessage(err, 'ロール管理')),
                 ],
             })
         }

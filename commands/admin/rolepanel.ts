@@ -150,11 +150,11 @@ export default {
             )
 
             // ウィザード UI を開始
-            const wizardMsg = await interaction.reply({
+            await interaction.reply({
                 embeds: [buildWizardEmbed(panel.id, title, type, [])],
                 components: buildWizardComponents(guild, []),
-                fetchReply: true,
             })
+            const wizardMsg = await interaction.fetchReply()
 
             await runWizard(interaction, wizardMsg as Message, panel.id, guild)
             return
@@ -174,25 +174,25 @@ export default {
                 })
             }
 
-            const items = await getRolePanelItems(panelId)
+             const items = await getRolePanelItems(panelId)
 
-            const wizardMsg = await interaction.reply({
-                embeds: [
-                    buildWizardEmbed(
-                        panel.id,
-                        panel.panel_title,
-                        panel.panel_type as 'button' | 'select',
-                        items.map((it) => it.role_id)
-                    ),
-                ],
-                components: buildWizardComponents(
-                    guild,
-                    items.map((it) => it.role_id)
-                ),
-                fetchReply: true,
-            })
+             await interaction.reply({
+                 embeds: [
+                     buildWizardEmbed(
+                         panel.id,
+                         panel.panel_title,
+                         panel.panel_type as 'button' | 'select',
+                         items.map((it) => it.role_id)
+                     ),
+                 ],
+                 components: buildWizardComponents(
+                     guild,
+                     items.map((it) => it.role_id)
+                 ),
+             })
+             const wizardMsg = await interaction.fetchReply()
 
-            await runWizard(interaction, wizardMsg as Message, panelId, guild)
+             await runWizard(interaction, wizardMsg as Message, panelId, guild)
             return
         }
 
@@ -423,7 +423,7 @@ function buildRolePanelMessage(
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 ...chunk.map((item) =>
                     new ButtonBuilder()
-                        .setCustomId(`rp_role:${panel.id}:${item.role_id}`)
+                        .setCustomId(`rp_btn:${panel.id}:${item.role_id}`)
                         .setLabel(item.label)
                         .setStyle(ButtonStyle.Secondary)
                 )
@@ -433,7 +433,7 @@ function buildRolePanelMessage(
     } else {
         // セレクトメニュー形式: 1つのセレクトに全ロールを入れる
         const select = new StringSelectMenuBuilder()
-            .setCustomId(`rp_select:${panel.id}`)
+            .setCustomId(`rp_sel:${panel.id}`)
             .setPlaceholder('ロールを選択')
             .addOptions(
                 items.map((item) => {
