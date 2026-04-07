@@ -1,4 +1,4 @@
-import { Events, MessageFlags, EmbedBuilder } from 'discord.js'
+import { Events } from 'discord.js'
 import type { ExtendedClient } from '../index.ts'
 import { handleTicketInteraction } from '../lib/handlers/ticketHandler'
 import { handleRolePanelInteraction } from '../lib/handlers/rolePanelHandler'

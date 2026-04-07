@@ -23,7 +23,6 @@ import {
     ActionRowBuilder,
     StringSelectMenuBuilder,
     StringSelectMenuOptionBuilder,
-    ComponentType,
     type TextChannel,
     type Message,
     type ButtonInteraction,
@@ -32,7 +31,6 @@ import {
 import {
     createErrorEmbed,
     createInfoEmbed,
-    createSuccessEmbed,
 } from '../../lib/embed'
 import {
     createRolePanel,
