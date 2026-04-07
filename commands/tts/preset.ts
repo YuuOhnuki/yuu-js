@@ -1,7 +1,6 @@
 import {
     SlashCommandBuilder,
     ChatInputCommandInteraction,
-    AutocompleteInteraction,
     MessageFlags,
     EmbedBuilder,
 } from 'discord.js'
@@ -9,7 +8,6 @@ import { getSpeakerUuidByStyleId, VoicevoxClient } from '../../lib/voicevox'
 import {
     createErrorEmbed,
     createSuccessEmbed,
-    createInfoEmbed,
 } from '../../lib/embed'
 import { getUserTtsPresets, updateUserTtsPresets } from '../../lib/db'
 
@@ -39,16 +37,8 @@ export default {
                             { name: '九州そら', value: 16 },
                             { name: 'もち子さん', value: 20 },
                             { name: '剣崎雌雄', value: 21 },
-                            { name: 'WhiteCUL', value: 23 },
-                            { name: '後鬼', value: 27 },
-                            { name: 'No.7', value: 29 },
-                            { name: 'ちび式じい', value: 42 },
                             { name: '櫻歌ミコ', value: 43 },
-                            { name: '小夜/SAYO', value: 46 },
-                            { name: 'ナースロボ＿タイプＴ', value: 47 },
-                            { name: '†聖騎士 紅桜†', value: 51 },
                             { name: '雀松朱司', value: 52 },
-                            { name: '麒ヶ島宗麟', value: 53 },
                             { name: '春歌ナナ', value: 54 },
                             { name: '猫使アル', value: 55 },
                             { name: '猫使ビィ', value: 58 }
